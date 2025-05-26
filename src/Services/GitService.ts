@@ -1,5 +1,6 @@
 import * as azdev from 'azure-devops-node-api';
 import { GitApi } from 'azure-devops-node-api/GitApi';
+import { VersionControlChangeType } from 'azure-devops-node-api/interfaces/GitInterfaces';
 import { AzureDevOpsConfig } from '../Interfaces/AzureDevOps';
 import { AzureDevOpsService } from './AzureDevOpsService';
 import {
@@ -18,7 +19,13 @@ import {
   MergePullRequestParams,
   GetCommitsParams,
   GetPullRequestsParams,
-  CompletePullRequestParams
+  CompletePullRequestParams,
+  AddPullRequestInlineCommentParams,
+  AddPullRequestFileCommentParams,
+  AddPullRequestCommentParams,
+  GetPullRequestFileChangesParams,
+  GetPullRequestChangesCountParams,
+  GetAllPullRequestChangesParams
 } from '../Interfaces/CodeAndRepositories';
 
 export class GitService extends AzureDevOpsService {
@@ -501,6 +508,241 @@ export class GitService extends AzureDevOpsService {
       return updatedPullRequest;
     } catch (error) {
       console.error(`Error completing pull request ${params.pullRequestId}:`, error);
+      throw error;
+    }
+  }
+
+  /**
+   * Add inline comment to pull request
+   */
+  public async addPullRequestInlineComment(params: AddPullRequestInlineCommentParams): Promise<any> {
+    try {
+      const gitApi = await this.getGitApi();
+      
+      // First get the changes for the file to get the change tracking ID
+      const changes = await gitApi.getPullRequestIterationChanges(
+        params.repositoryId,
+        params.pullRequestId,
+        1, // First iteration
+        this.config.project
+      );
+
+      // Find the change entry for the specific file
+      const changeEntry = changes.changeEntries?.find(entry => entry.item?.path === params.path);
+      if (!changeEntry) {
+        throw new Error(`No changes found for file ${params.path}`);
+      }
+
+      // Create a thread with proper context for the comment
+      const thread = {
+        comments: [{
+          content: params.comment,
+          parentCommentId: 0,
+          commentType: 1 // 1 = text
+        }],
+        status: 1, // 1 = active
+        threadContext: {
+          filePath: params.path,
+          rightFileStart: {
+            line: params.position.line,
+            offset: params.position.offset
+          },
+          rightFileEnd: {
+            line: params.position.line,
+            offset: params.position.offset + 1 // End position should be different from start
+          }
+        },
+        pullRequestThreadContext: {
+          changeTrackingId: changeEntry.changeTrackingId, // Use the change tracking ID from the diff
+          iterationContext: {
+            firstComparingIteration: 1, // First iteration
+            secondComparingIteration: 1 // Current iteration
+          }
+        }
+      };
+      
+      // Create the thread (which includes the comment)
+      const result = await gitApi.createThread(
+        thread,
+        params.repositoryId,
+        params.pullRequestId,
+        this.config.project
+      );
+      
+      return result;
+    } catch (error) {
+      console.error(`Error adding inline comment to pull request ${params.pullRequestId}:`, error);
+      throw error;
+    }
+  }
+
+  /**
+   * Add file comment to pull request
+   */
+  public async addPullRequestFileComment(params: AddPullRequestFileCommentParams): Promise<any> {
+    try {
+      const gitApi = await this.getGitApi();
+      
+      // Create a thread with proper context for a file-level comment
+      const thread = {
+        comments: [{
+          content: params.comment,
+          parentCommentId: 0,
+          commentType: 1 // 1 = text
+        }],
+        status: 1, // 1 = active
+        threadContext: {
+          filePath: params.path
+          // No position info for file-level comments
+        }
+      };
+      
+      // Create the thread (which includes the comment)
+      const result = await gitApi.createThread(
+        thread,
+        params.repositoryId,
+        params.pullRequestId,
+        this.config.project
+      );
+      
+      return result;
+    } catch (error) {
+      console.error(`Error adding file comment to pull request ${params.pullRequestId}:`, error);
+      throw error;
+    }
+  }
+
+  /**
+   * Add general comment to pull request
+   */
+  public async addPullRequestComment(params: AddPullRequestCommentParams): Promise<any> {
+    try {
+      const gitApi = await this.getGitApi();
+      
+      // Create a thread for a general PR comment (no file context)
+      const thread = {
+        comments: [{
+          content: params.comment,
+          parentCommentId: 0,
+          commentType: 1 // 1 = text
+        }],
+        status: 1 // 1 = active
+        // No threadContext for general PR comments
+      };
+      
+      // Create the thread (which includes the comment)
+      const result = await gitApi.createThread(
+        thread,
+        params.repositoryId,
+        params.pullRequestId,
+        this.config.project
+      );
+      
+      return result;
+    } catch (error) {
+      console.error(`Error adding comment to pull request ${params.pullRequestId}:`, error);
+      throw error;
+    }
+  }
+
+  /**
+   * Get pull request file changes
+   */
+  public async getPullRequestFileChanges(params: GetPullRequestFileChangesParams): Promise<any> {
+    try {
+      const gitApi = await this.getGitApi();
+      
+      // If path is provided, we need to get the changes for that specific file
+      if (params.path) {
+        const changes = await gitApi.getPullRequestIterationChanges(
+          params.repositoryId,
+          params.pullRequestId,
+          1, // First iteration
+          this.config.project,
+          1, // iteration number
+          undefined // path parameter is not supported in this API version
+        );
+        
+        // Filter changes for the specific file
+        return {
+          ...changes,
+          changeEntries: changes.changeEntries?.filter(entry => entry.item?.path === params.path) || []
+        };
+      }
+      
+      // If no path is provided, get all changes
+      const changes = await gitApi.getPullRequestIterationChanges(
+        params.repositoryId,
+        params.pullRequestId,
+        1, // First iteration
+        this.config.project,
+        1 // iteration number
+      );
+      
+      return changes;
+    } catch (error) {
+      console.error(`Error getting file changes for pull request ${params.pullRequestId}:`, error);
+      throw error;
+    }
+  }
+
+  /**
+   * Get pull request changes count
+   */
+  public async getPullRequestChangesCount(params: GetPullRequestChangesCountParams): Promise<any> {
+    try {
+      const gitApi = await this.getGitApi();
+      
+      const changes = await gitApi.getPullRequestIterationChanges(
+        params.repositoryId,
+        params.pullRequestId,
+        1, // First iteration
+        this.config.project
+      );
+      
+      return {
+        totalChanges: changes.changeEntries?.length || 0,
+        addedFiles: changes.changeEntries?.filter(entry => entry.changeType === VersionControlChangeType.Add).length || 0,
+        modifiedFiles: changes.changeEntries?.filter(entry => entry.changeType === VersionControlChangeType.Edit).length || 0,
+        deletedFiles: changes.changeEntries?.filter(entry => entry.changeType === VersionControlChangeType.Delete).length || 0
+      };
+    } catch (error) {
+      console.error(`Error getting changes count for pull request ${params.pullRequestId}:`, error);
+      throw error;
+    }
+  }
+
+  /**
+   * Get all pull request changes
+   */
+  public async getAllPullRequestChanges(params: GetAllPullRequestChangesParams): Promise<any> {
+    try {
+      const gitApi = await this.getGitApi();
+      
+      const changes = await gitApi.getPullRequestIterationChanges(
+        params.repositoryId,
+        params.pullRequestId,
+        1, // First iteration
+        this.config.project
+      );
+      
+      let changeEntries = changes.changeEntries || [];
+      
+      // Apply pagination if specified
+      if (params.skip && params.skip > 0) {
+        changeEntries = changeEntries.slice(params.skip);
+      }
+      
+      if (params.top && params.top > 0) {
+        changeEntries = changeEntries.slice(0, params.top);
+      }
+      
+      return {
+        changes: changeEntries,
+        totalCount: changes.changeEntries?.length || 0
+      };
+    } catch (error) {
+      console.error(`Error getting all changes for pull request ${params.pullRequestId}:`, error);
       throw error;
     }
   }

@@ -15,7 +15,13 @@ import {
   GetPullRequestParams,
   GetPullRequestCommentsParams,
   ApprovePullRequestParams,
-  MergePullRequestParams
+  MergePullRequestParams,
+  AddPullRequestInlineCommentParams,
+  AddPullRequestFileCommentParams,
+  AddPullRequestCommentParams,
+  GetPullRequestFileChangesParams,
+  GetPullRequestChangesCountParams,
+  GetAllPullRequestChangesParams
 } from '../Interfaces/CodeAndRepositories';
 import getClassMethods from "../utils/getClassMethods";
 
@@ -204,6 +210,84 @@ export class GitTools {
       return formatMcpResponse(result, `Merged pull request ${params.pullRequestId}`);
     } catch (error) {
       console.error('Error in mergePullRequest tool:', error);
+      return formatErrorResponse(error);
+    }
+  }
+
+  /**
+   * Add inline comment to pull request
+   */
+  public async addPullRequestInlineComment(params: AddPullRequestInlineCommentParams): Promise<McpResponse> {
+    try {
+      const result = await this.gitService.addPullRequestInlineComment(params);
+      return formatMcpResponse(result, `Added inline comment to pull request ${params.pullRequestId}`);
+    } catch (error) {
+      console.error('Error in addPullRequestInlineComment tool:', error);
+      return formatErrorResponse(error);
+    }
+  }
+
+  /**
+   * Add file comment to pull request
+   */
+  public async addPullRequestFileComment(params: AddPullRequestFileCommentParams): Promise<McpResponse> {
+    try {
+      const result = await this.gitService.addPullRequestFileComment(params);
+      return formatMcpResponse(result, `Added file comment to pull request ${params.pullRequestId}`);
+    } catch (error) {
+      console.error('Error in addPullRequestFileComment tool:', error);
+      return formatErrorResponse(error);
+    }
+  }
+
+  /**
+   * Add general comment to pull request
+   */
+  public async addPullRequestComment(params: AddPullRequestCommentParams): Promise<McpResponse> {
+    try {
+      const result = await this.gitService.addPullRequestComment(params);
+      return formatMcpResponse(result, `Added comment to pull request ${params.pullRequestId}`);
+    } catch (error) {
+      console.error('Error in addPullRequestComment tool:', error);
+      return formatErrorResponse(error);
+    }
+  }
+
+  /**
+   * Get pull request file changes
+   */
+  public async getPullRequestFileChanges(params: GetPullRequestFileChangesParams): Promise<McpResponse> {
+    try {
+      const changes = await this.gitService.getPullRequestFileChanges(params);
+      return formatMcpResponse(changes, `Retrieved changes for file in pull request ${params.pullRequestId}`);
+    } catch (error) {
+      console.error('Error in getPullRequestFileChanges tool:', error);
+      return formatErrorResponse(error);
+    }
+  }
+
+  /**
+   * Get pull request changes count
+   */
+  public async getPullRequestChangesCount(params: GetPullRequestChangesCountParams): Promise<McpResponse> {
+    try {
+      const count = await this.gitService.getPullRequestChangesCount(params);
+      return formatMcpResponse(count, `Retrieved changes count for pull request ${params.pullRequestId}`);
+    } catch (error) {
+      console.error('Error in getPullRequestChangesCount tool:', error);
+      return formatErrorResponse(error);
+    }
+  }
+
+  /**
+   * Get all pull request changes
+   */
+  public async getAllPullRequestChanges(params: GetAllPullRequestChangesParams): Promise<McpResponse> {
+    try {
+      const changes = await this.gitService.getAllPullRequestChanges(params);
+      return formatMcpResponse(changes, `Retrieved all changes for pull request ${params.pullRequestId}`);
+    } catch (error) {
+      console.error('Error in getAllPullRequestChanges tool:', error);
       return formatErrorResponse(error);
     }
   }

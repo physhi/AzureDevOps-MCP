@@ -175,4 +175,64 @@ export interface CompletePullRequestParams {
   deleteSourceBranch?: boolean;
   comment?: string;
   projectId?: string;
+}
+
+/**
+ * Interface for adding inline comment to pull request
+ */
+export interface AddPullRequestInlineCommentParams {
+  repositoryId: string;
+  pullRequestId: number;
+  comment: string;
+  position: {
+    line: number;
+    offset: number;
+  };
+  path: string;
+}
+
+/**
+ * Interface for adding file comment to pull request
+ */
+export interface AddPullRequestFileCommentParams {
+  repositoryId: string;
+  pullRequestId: number;
+  path: string;
+  comment: string;
+}
+
+/**
+ * Interface for adding general comment to pull request
+ */
+export interface AddPullRequestCommentParams {
+  repositoryId: string;
+  pullRequestId: number;
+  comment: string;
+}
+
+/**
+ * Interface for getting pull request file changes
+ */
+export interface GetPullRequestFileChangesParams {
+  repositoryId: string;
+  pullRequestId: number;
+  path?: string;
+}
+
+/**
+ * Interface for getting pull request changes count
+ */
+export interface GetPullRequestChangesCountParams {
+  repositoryId: string;
+  pullRequestId: number;
+}
+
+/**
+ * Interface for getting all pull request changes
+ */
+export interface GetAllPullRequestChangesParams {
+  repositoryId: string;
+  pullRequestId: number;
+  top?: number;
+  skip?: number;
 } 
