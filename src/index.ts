@@ -10,6 +10,7 @@ import { DevSecOpsTools } from './Tools/DevSecOpsTools';
 import { ArtifactManagementTools } from './Tools/ArtifactManagementTools';
 import { AIAssistedDevelopmentTools } from './Tools/AIAssistedDevelopmentTools';
 import { z } from 'zod';
+import { EntraAuthHandler } from './Services/EntraAuthHandler';
 
 async function main() {
   try {
@@ -19,7 +20,9 @@ async function main() {
     // Load configuration
     const azureDevOpsConfig = getAzureDevOpsConfig();
     console.log('Successfully loaded Azure DevOps configuration');
-
+    if(azureDevOpsConfig.auth?.type === 'entra') {
+      azureDevOpsConfig.entraAuthHandler = await EntraAuthHandler.getInstance();
+    }
     // Load allowed tools
     const allowedTools = getAllowedTools();
     console.log('Successfully loaded allowed tools');
@@ -1780,7 +1783,6 @@ async function main() {
     );
 
     console.log(`Registered tools`);
-
     // Create a transport (use stdio for simplicity)
     console.log('Creating StdioServerTransport');
     const transport = new StdioServerTransport();

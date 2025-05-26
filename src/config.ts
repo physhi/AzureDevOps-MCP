@@ -66,13 +66,18 @@ export function getAzureDevOpsConfig(): AzureDevOpsConfig {
 
   // Authentication configuration
   const authTypeInput = process.env.AZURE_DEVOPS_AUTH_TYPE || 'pat';
-  const authType = (authTypeInput === 'ntlm' || authTypeInput === 'basic' || authTypeInput === 'pat') 
-    ? authTypeInput 
+  const authType = (authTypeInput === 'ntlm' || authTypeInput === 'basic' || authTypeInput === 'pat' || authTypeInput === 'entra')
+    ? authTypeInput
     : 'pat';
-    
+
   let auth: AzureDevOpsConfig['auth'];
 
-  if (isOnPremises) {
+  if (authType === 'entra') {
+    if (isOnPremises) {
+      throw new Error('Azure Identity (DefaultAzureCredential) authentication is not supported for on-premises Azure DevOps.');
+    }
+    auth = { type: 'entra' };
+  } else if (isOnPremises) {
     switch (authType) {
       case 'ntlm':
         if (!process.env.AZURE_DEVOPS_USERNAME || !process.env.AZURE_DEVOPS_PASSWORD) {
@@ -103,6 +108,15 @@ export function getAzureDevOpsConfig(): AzureDevOpsConfig {
         auth = {
           type: 'pat'
         };
+    }
+  } else { // Cloud environment
+    if (authType === 'pat') {
+      if (!personalAccessToken) {
+        throw new Error('PAT authentication requires a personal access token for Azure DevOps cloud unless AZURE_DEVOPS_AUTH_TYPE is set to entra.');
+      }
+      auth = { type: 'pat' };
+    } else { // If not 'pat' and not 'entra' (already handled), then it's an unsupported type for cloud
+      throw new Error(`Unsupported auth type "${authType}" for Azure DevOps cloud. Must be 'pat' or 'entra'.`);
     }
   }
 
