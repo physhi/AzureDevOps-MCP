@@ -231,11 +231,9 @@ export class BoardsSprintsService extends AzureDevOpsService {
     try {
       const coreApi = await this.getCoreApi();
       const teamId = params.teamId || this.config.project;
-      
       // Get team members with a different approach since getTeamMembers doesn't exist
       // First get the team
       const team = await coreApi.getTeam(this.config.project, teamId);
-      
       // Return team info as a workaround
       return {
         team,
@@ -243,6 +241,20 @@ export class BoardsSprintsService extends AzureDevOpsService {
       };
     } catch (error) {
       console.error(`Error getting team members for team ${params.teamId}:`, error);
+      throw error;
+    }
+  }
+
+  /**
+   * Get all teams in the configured project
+   */
+  public async getTeams(): Promise<any[]> {
+    try {
+      const coreApi = await this.getCoreApi();
+      const teams = await coreApi.getTeams(this.config.project);
+      return teams;
+    } catch (error) {
+      console.error('Error getting teams:', error);
       throw error;
     }
   }
