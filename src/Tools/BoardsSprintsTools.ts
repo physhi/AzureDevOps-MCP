@@ -137,6 +137,19 @@ export class BoardsSprintsTools {
       return formatErrorResponse(error);
     }
   }
+
+  /**
+   * Get all teams in the configured project
+   */
+  public async getTeams(): Promise<McpResponse> {
+    try {
+      const teams = await this.boardsSprintsService.getTeams();
+      return formatMcpResponse(teams, `Found ${teams.length} teams`);
+    } catch (error) {
+      console.error('Error in getTeams tool:', error);
+      return formatErrorResponse(error);
+    }
+  }
 }
 
 export const BoardsSprintsToolMethods = getClassMethods(BoardsSprintsTools.prototype);

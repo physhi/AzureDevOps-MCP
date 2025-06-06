@@ -388,6 +388,19 @@ async function main() {
         };
       }
     );
+
+    allowedTools.has("getTeams") && server.tool("getTeams",
+      "Get all teams in the configured project",
+      {},
+      async (_params, extra) => {
+        const result = await boardsSprintsTools.getTeams();
+        return {
+          content: result.content,
+          rawData: result.rawData,
+          isError: result.isError
+        };
+      }
+    );
     
     // Register Project Tools
     allowedTools.has("listProjects") && server.tool("listProjects", 
