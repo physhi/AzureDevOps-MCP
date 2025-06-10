@@ -230,9 +230,7 @@ export class GitService extends AzureDevOpsService {
             const buffer = Buffer.concat(chunks);
             const fileContent = buffer.toString('utf8');
             resolve({
-              content: fileContent,
-              lines: fileContent.split(/\r?\n/),
-              lineCount: fileContent.split(/\r?\n/).length
+              content: fileContent
             });
           });
           
@@ -247,9 +245,7 @@ export class GitService extends AzureDevOpsService {
       }
       
       return {
-        content: fileContent,
-        lines: fileContent.split(/\r?\n/),
-        lineCount: fileContent.split(/\r?\n/).length
+        content: fileContent
       };
     } catch (error) {
       console.error(`Error getting file content for ${params.path}:`, error);
