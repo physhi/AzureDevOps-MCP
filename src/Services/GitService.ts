@@ -208,7 +208,6 @@ export class GitService extends AzureDevOpsService {
         undefined
       );
       
-      // Convert content to string
       let fileContent = '';
       
       // Handle different content types
@@ -216,8 +215,32 @@ export class GitService extends AzureDevOpsService {
         fileContent = content.toString('utf8');
       } else if (typeof content === 'string') {
         fileContent = content;
+      } else if (content && typeof content === 'object' && 'pipe' in content) {
+        // Handle stream content
+        const chunks: Buffer[] = [];
+        
+        return new Promise((resolve, reject) => {
+          const stream = content as NodeJS.ReadableStream;
+          
+          stream.on('data', (chunk: Buffer) => {
+            chunks.push(chunk);
+          });
+          
+          stream.on('end', () => {
+            const buffer = Buffer.concat(chunks);
+            const fileContent = buffer.toString('utf8');
+            resolve({
+              content: fileContent
+            });
+          });
+          
+          stream.on('error', (error) => {
+            console.error(`Error reading stream for ${params.path}:`, error);
+            reject(error);
+          });
+        });
       } else {
-        // If it's a stream or other type, return a placeholder
+        // If it's some other type, return a placeholder
         fileContent = "[Content not available in this format]";
       }
       
@@ -504,4 +527,4 @@ export class GitService extends AzureDevOpsService {
       throw error;
     }
   }
-} 
+}
