@@ -215,7 +215,7 @@ export class GitService extends AzureDevOpsService {
         fileContent = content.toString('utf8');
       } else if (typeof content === 'string') {
         fileContent = content;
-      } else if (content && typeof content === 'object' && 'pipe' in content && typeof (content as any).pipe === 'function') {
+      } else if (content && typeof content === 'object' && 'pipe' in content && typeof content.pipe === 'function') {
         // Handle stream content
         const chunks: Buffer[] = [];
         
