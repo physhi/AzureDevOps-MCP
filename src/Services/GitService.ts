@@ -220,10 +220,10 @@ export class GitService extends AzureDevOpsService {
         const chunks: Buffer[] = [];
         
         return new Promise((resolve, reject) => {
-          const stream = content as NodeJS.ReadableStream;
+          const stream = content;
           
           const timeout = setTimeout(() => {
-            stream.destroy();
+            typeof (stream as any).destroy === 'function' && (stream as any).destroy();
             reject(new Error(`Stream timeout for ${params.path}`));
           }, 30000);
 
