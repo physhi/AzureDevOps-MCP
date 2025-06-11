@@ -220,18 +220,16 @@ export class GitService extends AzureDevOpsService {
         const chunks: Buffer[] = [];
         
         return new Promise((resolve, reject) => {
-          const stream = content;
-          
           const timeout = setTimeout(() => {
-            typeof (stream as any).destroy === 'function' && (stream as any).destroy();
+            typeof (content as any).destroy === 'function' && (content as any).destroy();
             reject(new Error(`Stream timeout for ${params.path}`));
           }, 30000);
 
-          stream.on('data', (chunk: Buffer) => {
+          content.on('data', (chunk: Buffer) => {
             chunks.push(chunk);
           });
           
-          stream.on('end', () => {
+          content.on('end', () => {
             clearTimeout(timeout);
             const buffer = Buffer.concat(chunks);
             const fileContent = buffer.toString('utf8');
@@ -240,7 +238,7 @@ export class GitService extends AzureDevOpsService {
             });
           });
           
-          stream.on('error', (error) => {
+          content.on('error', (error) => {
             clearTimeout(timeout);
             console.error(`Error reading stream for ${params.path}:`, error);
             reject(error);
