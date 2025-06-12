@@ -1,4 +1,5 @@
 import * as azdev from 'azure-devops-node-api';
+import { Readable } from 'stream';
 import { GitApi } from 'azure-devops-node-api/GitApi';
 import { AzureDevOpsConfig } from '../Interfaces/AzureDevOps';
 import { AzureDevOpsService } from './AzureDevOpsService';
@@ -218,18 +219,19 @@ export class GitService extends AzureDevOpsService {
       } else if (content && typeof content === 'object' && 'pipe' in content && typeof content.pipe === 'function') {
         // Handle stream content
         const chunks: Buffer[] = [];
+        const stream = content as Readable;
         
         return new Promise((resolve, reject) => {
           const timeout = setTimeout(() => {
-            typeof (content as any).destroy === 'function' && (content as any).destroy();
+            stream.destroy();
             reject(new Error(`Stream timeout for ${params.path}`));
           }, 30000);
 
-          content.on('data', (chunk: Buffer) => {
+          stream.on('data', (chunk: Buffer) => {
             chunks.push(chunk);
           });
           
-          content.on('end', () => {
+          stream.on('end', () => {
             clearTimeout(timeout);
             const buffer = Buffer.concat(chunks);
             const fileContent = buffer.toString('utf8');
@@ -238,7 +240,7 @@ export class GitService extends AzureDevOpsService {
             });
           });
           
-          content.on('error', (error) => {
+          stream.on('error', (error) => {
             clearTimeout(timeout);
             console.error(`Error reading stream for ${params.path}:`, error);
             reject(error);
