@@ -1,4 +1,5 @@
 import * as azdev from 'azure-devops-node-api';
+import { Readable } from 'stream';
 import { GitApi } from 'azure-devops-node-api/GitApi';
 import { AzureDevOpsConfig } from '../Interfaces/AzureDevOps';
 import { AzureDevOpsService } from './AzureDevOpsService';
@@ -208,7 +209,6 @@ export class GitService extends AzureDevOpsService {
         undefined
       );
       
-      // Convert content to string
       let fileContent = '';
       
       // Handle different content types
@@ -216,8 +216,38 @@ export class GitService extends AzureDevOpsService {
         fileContent = content.toString('utf8');
       } else if (typeof content === 'string') {
         fileContent = content;
+      } else if (content && typeof content === 'object' && 'pipe' in content && typeof content.pipe === 'function') {
+        // Handle stream content
+        const chunks: Buffer[] = [];
+        const stream = content as Readable;
+        
+        return new Promise((resolve, reject) => {
+          const timeout = setTimeout(() => {
+            stream.destroy();
+            reject(new Error(`Stream timeout for ${params.path}`));
+          }, 30000);
+
+          stream.on('data', (chunk: Buffer) => {
+            chunks.push(chunk);
+          });
+          
+          stream.on('end', () => {
+            clearTimeout(timeout);
+            const buffer = Buffer.concat(chunks);
+            const fileContent = buffer.toString('utf8');
+            resolve({
+              content: fileContent
+            });
+          });
+          
+          stream.on('error', (error) => {
+            clearTimeout(timeout);
+            console.error(`Error reading stream for ${params.path}:`, error);
+            reject(error);
+          });
+        });
       } else {
-        // If it's a stream or other type, return a placeholder
+        // If it's some other type, return a placeholder
         fileContent = "[Content not available in this format]";
       }
       
@@ -504,4 +534,4 @@ export class GitService extends AzureDevOpsService {
       throw error;
     }
   }
-} 
+}
