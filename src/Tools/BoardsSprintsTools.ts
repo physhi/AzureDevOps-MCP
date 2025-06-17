@@ -130,8 +130,10 @@ export class BoardsSprintsTools {
    */
   public async getTeamMembers(params: GetTeamMembersParams): Promise<McpResponse> {
     try {
-      const members = await this.boardsSprintsService.getTeamMembers(params);
-      return formatMcpResponse(members, `Found ${members.length} team members`);
+      const response = await this.boardsSprintsService.getTeamMembers(params);
+      const members = response.value || response; // Handle both formats
+      const memberCount = Array.isArray(members) ? members.length : (response.count || 0);
+      return formatMcpResponse(response, `Found ${memberCount} team members`);
     } catch (error) {
       console.error('Error in getTeamMembers tool:', error);
       return formatErrorResponse(error);

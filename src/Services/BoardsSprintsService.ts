@@ -230,15 +230,11 @@ export class BoardsSprintsService extends AzureDevOpsService {
   public async getTeamMembers(params: GetTeamMembersParams): Promise<any> {
     try {
       const coreApi = await this.getCoreApi();
-      const teamId = params.teamId || this.config.project;
-      // Get team members with a different approach since getTeamMembers doesn't exist
-      // First get the team
-      const team = await coreApi.getTeam(this.config.project, teamId);
-      // Return team info as a workaround
-      return {
-        team,
-        message: "Direct team members API not available, returning team info instead"
-      };
+      const teamId = params.teamId || await this.getDefaultTeamId();
+      
+      // Use the proper API method to get team members
+      const members = await coreApi.getTeamMembersWithExtendedProperties(this.config.project, teamId);
+      return members;
     } catch (error) {
       console.error(`Error getting team members for team ${params.teamId}:`, error);
       throw error;
