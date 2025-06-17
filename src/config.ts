@@ -42,7 +42,7 @@ function loadEnvFile() {
     }
   }
 
-  console.warn('No .env file found. Using environment variables if available.');
+
 }
 
 // Load environment variables

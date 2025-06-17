@@ -3,13 +3,6 @@
 # Star History
 [![Star History Chart](https://api.star-history.com/svg?repos=RyanCardin15/AzureDevOps-MCP&type=Date)](https://star-history.com/#RyanCardin15/AzureDevOps-MCP&Date)
 
-[![smithery badge](https://smithery.ai/badge/@RyanCardin15/azuredevops-mcp)](https://smithery.ai/server/@RyanCardin15/azuredevops-mcp)
-
-<a href="https://glama.ai/mcp/servers/z7mxfcinp8">
-  <img width="380" height="200" src="https://glama.ai/mcp/servers/z7mxfcinp8/badge" />
-</a>
-
-
 A powerful integration for Azure DevOps that provides seamless access to work items, repositories, projects, boards, and sprints through the Model Context Protocol (MCP) server.
 
 ## Overview
@@ -477,3 +470,9 @@ Contributions are welcome! Here's how you can contribute:
 Please ensure your code passes linting and includes appropriate tests.
 
 [![Verified on MseeP](https://mseep.ai/badge.svg)](https://mseep.ai/app/22aecb18-6269-482a-9b0c-a96653410bf3)
+
+[![smithery badge](https://smithery.ai/badge/@RyanCardin15/azuredevops-mcp)](https://smithery.ai/server/@RyanCardin15/azuredevops-mcp)
+
+<a href="https://glama.ai/mcp/servers/z7mxfcinp8">
+  <img width="380" height="200" src="https://glama.ai/mcp/servers/z7mxfcinp8/badge" />
+</a>
