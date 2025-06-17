@@ -230,10 +230,22 @@ export class BoardsSprintsService extends AzureDevOpsService {
   public async getTeamMembers(params: GetTeamMembersParams): Promise<any> {
     try {
       const coreApi = await this.getCoreApi();
-      const teamId = params.teamId || await this.getDefaultTeamId();
+      const teamId = params.teamId || this.config.project;
       
-      // Use the proper API method to get team members
+      // Get team members with extended properties
       const members = await coreApi.getTeamMembersWithExtendedProperties(this.config.project, teamId);
+      
+      // Transform to streamlined format for MCP tool consumption
+      if (members && Array.isArray(members)) {
+        const streamlined = members.map((member: any) => ({
+          displayName: member.identity?.displayName,
+          uniqueName: member.identity?.uniqueName,
+          isTeamAdmin: member.isTeamAdmin || false
+        }));
+        
+        return streamlined;
+      }
+      
       return members;
     } catch (error) {
       console.error(`Error getting team members for team ${params.teamId}:`, error);

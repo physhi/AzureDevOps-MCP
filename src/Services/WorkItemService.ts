@@ -53,6 +53,59 @@ export class WorkItemService extends AzureDevOpsService {
     try {
       const witApi = await this.getWorkItemTrackingApi();
       const workItem = await witApi.getWorkItem(params.id, undefined, undefined, undefined, this.config.project);
+      
+      // Transform to streamlined format for MCP tool consumption
+      if (workItem && workItem.fields) {
+        const streamlined: any = {
+          id: workItem.id,
+          rev: workItem.rev,
+          title: workItem.fields['System.Title'],
+          workItemType: workItem.fields['System.WorkItemType'],
+          state: workItem.fields['System.State'],
+          areaPath: workItem.fields['System.AreaPath'],
+          iterationPath: workItem.fields['System.IterationPath'],
+          assignedTo: workItem.fields['System.AssignedTo'] ? {
+            displayName: workItem.fields['System.AssignedTo'].displayName,
+            uniqueName: workItem.fields['System.AssignedTo'].uniqueName
+          } : null,
+          createdBy: workItem.fields['System.CreatedBy'] ? {
+            displayName: workItem.fields['System.CreatedBy'].displayName,
+            uniqueName: workItem.fields['System.CreatedBy'].uniqueName
+          } : null,
+          createdDate: workItem.fields['System.CreatedDate'],
+          changedDate: workItem.fields['System.ChangedDate'],
+          description: workItem.fields['System.Description'],
+          priority: workItem.fields['Microsoft.VSTS.Common.Priority'],
+          originalEstimate: workItem.fields['Microsoft.VSTS.Scheduling.OriginalEstimate'],
+          completedWork: workItem.fields['Microsoft.VSTS.Scheduling.CompletedWork'],
+          remainingWork: workItem.fields['Microsoft.VSTS.Scheduling.RemainingWork']
+        };
+        
+        // Add work item relations/dependencies
+        if (workItem.relations && workItem.relations.length > 0) {
+          streamlined.relations = workItem.relations.map((relation: any) => {
+            // Extract work item ID from URL (e.g., ".../_apis/wit/workItems/12345" -> 12345)
+            const urlParts = relation.url.split('/');
+            const relatedId = parseInt(urlParts[urlParts.length - 1]);
+            
+            return {
+              relationshipType: relation.rel,
+              relatedWorkItemId: relatedId,
+              comment: relation.attributes?.comment || null
+            };
+          });
+        }
+        
+        // Remove undefined fields to keep response clean
+        Object.keys(streamlined).forEach(key => {
+          if (streamlined[key] === undefined) {
+            delete streamlined[key];
+          }
+        });
+        
+        return streamlined;
+      }
+      
       return workItem;
     } catch (error) {
       console.error(`Error getting work item ${params.id}:`, error);
