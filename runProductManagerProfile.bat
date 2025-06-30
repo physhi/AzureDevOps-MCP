@@ -8,3 +8,4 @@ set ALLOWED_TOOLS=listPullRequests,getPullRequest,getPullRequestComments,approve
 
 node %~dp0\dist\index.js
 exit
+
