@@ -77,6 +77,7 @@ export interface GetCommitHistoryParams {
   itemPath?: string;
   top?: number;
   skip?: number;
+  projectId?: string;
 }
 
 /**

@@ -157,11 +157,162 @@ export class GitTools {
   public async getCommitHistory(params: GetCommitHistoryParams): Promise<McpResponse> {
     try {
       const commits = await this.gitService.getCommitHistory(params);
-      return formatMcpResponse(commits);
+      return this.formatCommitHistoryResponse(commits, params);
     } catch (error) {
       console.error('Error in getCommitHistory tool:', error);
       return formatErrorResponse(error);
     }
+  }
+
+  /**
+   * Format commit history response with enhanced readability
+   */
+  private formatCommitHistoryResponse(commits: any[], params: GetCommitHistoryParams): McpResponse {
+    if (!commits || commits.length === 0) {
+      return {
+        content: [
+          {
+            type: "text",
+            text: `## 📊 Commit History\n\n**No commits found** for the specified criteria.\n\n**Repository:** ${params.repositoryId}\n${params.itemPath ? `**File Path:** ${params.itemPath}\n` : ''}**Total commits:** 0`
+          }
+        ]
+      };
+    }
+
+    // Helper function to format date in a readable way
+    const formatDate = (dateString: string): string => {
+      try {
+        const date = new Date(dateString);
+        const now = new Date();
+        const diffMs = now.getTime() - date.getTime();
+        const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+        const diffHours = Math.floor(diffMs / (1000 * 60 * 60));
+        const diffMinutes = Math.floor(diffMs / (1000 * 60));
+
+        let timeAgo = '';
+        if (diffDays > 0) {
+          timeAgo = `${diffDays} day${diffDays > 1 ? 's' : ''} ago`;
+        } else if (diffHours > 0) {
+          timeAgo = `${diffHours} hour${diffHours > 1 ? 's' : ''} ago`;
+        } else if (diffMinutes > 0) {
+          timeAgo = `${diffMinutes} minute${diffMinutes > 1 ? 's' : ''} ago`;
+        } else {
+          timeAgo = 'Just now';
+        }
+
+        const formatted = date.toLocaleDateString('en-US', { 
+          year: 'numeric', 
+          month: 'short', 
+          day: 'numeric',
+          hour: '2-digit',
+          minute: '2-digit'
+        });
+
+        return `${formatted} (${timeAgo})`;
+      } catch {
+        return dateString;
+      }
+    };
+
+    // Helper function to format commit message
+    const formatCommitMessage = (message: string): { title: string, description: string } => {
+      if (!message) return { title: 'No commit message', description: '' };
+      
+      const lines = message.trim().split('\n');
+      const title = lines[0] || 'No commit message';
+      const description = lines.slice(1).join('\n').trim();
+      
+      return { title, description };
+    };
+
+    // Helper function to format author
+    const formatAuthor = (author: any): string => {
+      if (!author) return 'Unknown';
+      if (author.displayName) return author.displayName;
+      if (author.name) return author.name;
+      if (author.email) return author.email;
+      return 'Unknown';
+    };
+
+    // Generate the formatted output
+    let result = `## 📊 Commit History\n\n`;
+
+    // Add header with metadata
+    result += `**Repository:** ${params.repositoryId}\n`;
+    if (params.itemPath) {
+      result += `**File Path:** ${params.itemPath}\n`;
+    }
+    result += `**Total commits:** ${commits.length}\n`;
+    if (params.top) {
+      result += `**Showing:** Latest ${Math.min(params.top, commits.length)} commits\n`;
+    }
+    result += `\n---\n\n`;
+
+    // Add each commit
+    commits.forEach((commit, index) => {
+      const { title, description } = formatCommitMessage(commit.comment);
+      const author = formatAuthor(commit.author);
+      const committer = formatAuthor(commit.committer);
+      const commitDate = formatDate(commit.author?.date || commit.committer?.date);
+      
+      result += `### ${index + 1}. 🔸 ${title}\n\n`;
+
+      // Commit metadata table
+      result += `| Property | Value |\n`;
+      result += `|----------|-------|\n`;
+      result += `| **Commit ID** | \`${commit.commitId?.substring(0, 12) || 'Unknown'}...\` |\n`;
+      result += `| **Author** | ${author} |\n`;
+      if (committer && committer !== author) {
+        result += `| **Committer** | ${committer} |\n`;
+      }
+      result += `| **Date** | ${commitDate} |\n`;
+      if (commit.changeCounts) {
+        const changes = commit.changeCounts;
+        let changesSummary = [];
+        if (changes.Add > 0) changesSummary.push(`${changes.Add} added`);
+        if (changes.Edit > 0) changesSummary.push(`${changes.Edit} modified`);
+        if (changes.Delete > 0) changesSummary.push(`${changes.Delete} deleted`);
+        if (changesSummary.length > 0) {
+          result += `| **Files Changed** | ${changesSummary.join(', ')} |\n`;
+        }
+      }
+
+      // Add description if present
+      if (description) {
+        result += `\n**Description:**\n\`\`\`\n${description}\n\`\`\`\n`;
+      }
+
+      // Add remote URL if available
+      if (commit.remoteUrl) {
+        result += `\n📍 **[View Commit](${commit.remoteUrl})**\n`;
+      }
+
+      result += `\n---\n\n`;
+    });
+
+    // Add summary statistics
+    const totalAuthors = new Set(commits.map(c => formatAuthor(c.author))).size;
+    const dateRange = commits.length > 1 ? 
+      `${formatDate(commits[commits.length - 1]?.author?.date || commits[commits.length - 1]?.committer?.date)} to ${formatDate(commits[0]?.author?.date || commits[0]?.committer?.date)}` :
+      'Single commit';
+
+    result += `## 📈 Summary\n\n`;
+    result += `- **Total commits shown:** ${commits.length}\n`;
+    result += `- **Contributors:** ${totalAuthors} author${totalAuthors > 1 ? 's' : ''}\n`;
+    result += `- **Date range:** ${dateRange}\n`;
+
+    if (params.skip && params.skip > 0) {
+      result += `- **Pagination:** Skipped ${params.skip} commits\n`;
+    }
+
+    return {
+      content: [
+        {
+          type: "text",
+          text: result
+        }
+      ]
+    };
   }
 
   /**

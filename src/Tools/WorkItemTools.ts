@@ -41,12 +41,330 @@ export class WorkItemTools {
    */
   public async getWorkItemById(params: WorkItemByIdParams): Promise<McpResponse> {
     try {
-      const workItem = await this.workItemService.getWorkItemById(params);
-      return formatMcpResponse(workItem, `Work item ${params.id} details`);
+      const workItem = await this.workItemService.getWorkItemWithEffortRollup(params);
+      return this.formatWorkItemResponse(workItem);
     } catch (error) {
       console.error('Error in getWorkItemById tool:', error);
       return formatErrorResponse(error);
     }
+  }
+
+  /**
+   * Format work item response with enhanced readability and effort tracking
+   */
+  private formatWorkItemResponse(workItem: any): McpResponse {
+    if (!workItem) {
+      return {
+        content: [
+          {
+            type: "text",
+            text: "Work item not found."
+          }
+        ]
+      };
+    }
+
+    // Helper function to format dates
+    const formatDate = (dateString: string): string => {
+      if (!dateString) return 'Not set';
+      
+      try {
+        const date = new Date(dateString);
+        const now = new Date();
+        const diffMs = now.getTime() - date.getTime();
+        const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+        const diffHours = Math.floor(diffMs / (1000 * 60 * 60));
+
+        let timeAgo = '';
+        if (diffDays > 0) {
+          timeAgo = `${diffDays} day${diffDays > 1 ? 's' : ''} ago`;
+        } else if (diffHours > 0) {
+          timeAgo = `${diffHours} hour${diffHours > 1 ? 's' : ''} ago`;
+        } else {
+          timeAgo = 'Recently';
+        }
+
+        const formatted = date.toLocaleDateString('en-US', { 
+          year: 'numeric', 
+          month: 'short', 
+          day: 'numeric'
+        });
+
+        return `${formatted} (${timeAgo})`;
+      } catch {
+        return dateString;
+      }
+    };
+
+    // Helper function to get work item type emoji
+    const getWorkItemTypeEmoji = (type: string): string => {
+      const typeMap: { [key: string]: string } = {
+        'Epic': '🎯',
+        'Feature': '🚀',
+        'User Story': '📖',
+        'Task': '✅',
+        'Bug': '🐛',
+        'Test Case': '🧪',
+        'Issue': '⚠️'
+      };
+      return typeMap[type] || '📋';
+    };
+
+    // Helper function to get state emoji
+    const getStateEmoji = (state: string): string => {
+      const stateMap: { [key: string]: string } = {
+        'New': '🆕',
+        'Active': '🔄',
+        'In Progress': '⚡',
+        'Resolved': '✅',
+        'Closed': '✅',
+        'Done': '✅',
+        'Removed': '❌',
+        'To Do': '📋',
+        'Doing': '⚡',
+        'Testing': '🧪'
+      };
+      return stateMap[state] || '📌';
+    };
+
+    // Helper function to get priority emoji
+    const getPriorityEmoji = (priority: number): string => {
+      if (priority === 1) return '🔴'; // Critical
+      if (priority === 2) return '🟡'; // High
+      if (priority === 3) return '🟢'; // Medium
+      if (priority === 4) return '🔵'; // Low
+      return '⚪'; // Unset
+    };
+
+    // Helper function to format effort tracking
+    const formatEffort = (hours: number | null | undefined): string => {
+      if (!hours || hours === 0) return '0h';
+      if (hours < 1) return `${Math.round(hours * 60)}m`;
+      return `${hours}h`;
+    };
+
+    // Helper function to calculate effort progress
+    const calculateProgress = (original: number, completed: number, remaining: number): { percentage: number, status: string } => {
+      if (!original || original === 0) {
+        if (completed > 0) {
+          return { percentage: 100, status: 'Over budget' };
+        }
+        return { percentage: 0, status: 'Not estimated' };
+      }
+
+      const totalSpent = completed + remaining;
+      const percentage = Math.round((completed / original) * 100);
+      
+      let status = 'On track';
+      if (totalSpent > original * 1.2) {
+        status = 'Over budget';
+      } else if (percentage >= 100) {
+        status = 'Complete';
+      } else if (totalSpent > original) {
+        status = 'Slightly over';
+      }
+
+      return { percentage: Math.min(percentage, 100), status };
+    };
+
+    // Helper function to parse and format description
+    const formatDescription = (description: string): string => {
+      if (!description) return 'No description provided';
+      
+      // Remove HTML tags for basic cleanup
+      let cleanDesc = description.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
+      
+      // Look for acceptance criteria patterns
+      const acMatch = cleanDesc.match(/acceptance criteria:?\s*(.*?)(?:\n\n|\*\*|$)/i);
+      if (acMatch) {
+        const acText = acMatch[1];
+        // Look for AC patterns like AC1:, AC-1:, etc.
+        const acItems = acText.split(/AC[\s-]*\d+:?/i).filter(item => item.trim());
+        if (acItems.length > 1) {
+          return cleanDesc.substring(0, 200) + (cleanDesc.length > 200 ? '...' : '');
+        }
+      }
+      
+      // Truncate if too long
+      return cleanDesc.length > 300 ? cleanDesc.substring(0, 300) + '...' : cleanDesc;
+    };
+
+    // Helper function to format sprint information
+    const formatSprintInfo = (iterationPath: string): string => {
+      if (!iterationPath) return 'No sprint assigned';
+      
+      const parts = iterationPath.split('\\');
+      const sprint = parts[parts.length - 1];
+      
+      // Check if it's a sprint pattern
+      if (sprint.toLowerCase().includes('sprint')) {
+        return `🏃‍♂️ ${sprint}`;
+      }
+      
+      return `📅 ${sprint}`;
+    };
+
+    // Generate the main work item display
+    const emoji = getWorkItemTypeEmoji(workItem.workItemType);
+    const stateEmoji = getStateEmoji(workItem.state);
+    const priorityEmoji = getPriorityEmoji(workItem.priority);
+
+    let result = `## ${emoji} ${workItem.workItemType} #${workItem.id}\n\n`;
+    result += `# ${workItem.title}\n\n`;
+
+    // Status and metadata table
+    result += `| Property | Value |\n`;
+    result += `|----------|-------|\n`;
+    result += `| **Status** | ${stateEmoji} **${workItem.state}** |\n`;
+    result += `| **Priority** | ${priorityEmoji} ${workItem.priority ? `Priority ${workItem.priority}` : 'Not set'} |\n`;
+    result += `| **Area** | ${workItem.areaPath || 'Not set'} |\n`;
+    result += `| **Sprint** | ${formatSprintInfo(workItem.iterationPath)} |\n`;
+
+    // People information
+    if (workItem.assignedTo) {
+      result += `| **Assigned To** | 👤 ${workItem.assignedTo.displayName} |\n`;
+    } else {
+      result += `| **Assigned To** | ⭕ *Unassigned* |\n`;
+    }
+    
+    if (workItem.createdBy) {
+      result += `| **Created By** | 👨‍💻 ${workItem.createdBy.displayName} |\n`;
+    }
+
+    // Dates
+    result += `| **Created** | ${formatDate(workItem.createdDate)} |\n`;
+    result += `| **Last Updated** | ${formatDate(workItem.changedDate)} |\n`;
+
+    result += `\n`;
+
+    // Effort Tracking Section
+    const hasEffortData = workItem.originalEstimate || workItem.completedWork || workItem.remainingWork;
+    const hasChildEffort = workItem.childEffortRollup;
+    
+    if (hasEffortData || hasChildEffort) {
+      result += `## ⏱️ Effort Tracking\n\n`;
+      
+      if (hasEffortData) {
+        const original = workItem.originalEstimate || 0;
+        const completed = workItem.completedWork || 0;
+        const remaining = workItem.remainingWork || 0;
+        const progress = calculateProgress(original, completed, remaining);
+
+        result += `### 📊 Direct Effort\n\n`;
+        result += `| Metric | Value | Progress |\n`;
+        result += `|--------|-------|---------|\n`;
+        result += `| **Original Estimate** | ${formatEffort(original)} | 📊 Baseline |\n`;
+        result += `| **Completed Work** | ${formatEffort(completed)} | ✅ ${progress.percentage}% |\n`;
+        result += `| **Remaining Work** | ${formatEffort(remaining)} | ⏳ To do |\n`;
+        result += `| **Total Effort** | ${formatEffort(completed + remaining)} | 📈 ${progress.status} |\n`;
+
+        // Progress bar visualization
+        const progressBars = Math.floor(progress.percentage / 10);
+        const progressBar = '█'.repeat(progressBars) + '░'.repeat(10 - progressBars);
+        result += `\n**Progress:** \`${progressBar}\` ${progress.percentage}%\n\n`;
+      }
+
+      // Child effort roll-up section
+      if (hasChildEffort) {
+        const rollup = workItem.childEffortRollup;
+        const childProgress = calculateProgress(rollup.totalOriginalEstimate, rollup.totalCompletedWork, rollup.totalRemainingWork);
+        
+        result += `### 📈 Child Work Items Roll-up (${rollup.childCount} items)\n\n`;
+        result += `| Metric | Value | Status |\n`;
+        result += `|--------|-------|---------|\n`;
+        result += `| **Total Original Estimate** | ${formatEffort(rollup.totalOriginalEstimate)} | 🎯 Planned |\n`;
+        result += `| **Total Completed Work** | ${formatEffort(rollup.totalCompletedWork)} | ✅ Done |\n`;
+        result += `| **Total Remaining Work** | ${formatEffort(rollup.totalRemainingWork)} | ⏳ Pending |\n`;
+        result += `| **Total Effort** | ${formatEffort(rollup.totalCompletedWork + rollup.totalRemainingWork)} | 📊 ${childProgress.status} |\n`;
+
+        // Child progress bar
+        const childProgressBars = Math.floor(childProgress.percentage / 10);
+        const childProgressBar = '█'.repeat(childProgressBars) + '░'.repeat(10 - childProgressBars);
+        result += `\n**Child Progress:** \`${childProgressBar}\` ${childProgress.percentage}%\n\n`;
+
+        // Child work items breakdown
+        if (rollup.childDetails && rollup.childDetails.length > 0) {
+          result += `#### 📋 Child Work Items Breakdown\n\n`;
+          rollup.childDetails.forEach((child: any) => {
+            const childEmoji = getWorkItemTypeEmoji(child.workItemType);
+            const childStateEmoji = getStateEmoji(child.state);
+            const childTotal = (child.completedWork || 0) + (child.remainingWork || 0);
+            
+            result += `- ${childEmoji} **#${child.id}** ${child.title}\n`;
+            result += `  - ${childStateEmoji} *${child.state}* | `;
+            result += `📊 ${formatEffort(child.originalEstimate)} estimated | `;
+            result += `✅ ${formatEffort(child.completedWork)} done | `;
+            result += `⏳ ${formatEffort(child.remainingWork)} remaining\n\n`;
+          });
+        }
+
+        // Combined effort summary if both direct and child effort exist
+        if (hasEffortData) {
+          const combinedOriginal = (workItem.originalEstimate || 0) + rollup.totalOriginalEstimate;
+          const combinedCompleted = (workItem.completedWork || 0) + rollup.totalCompletedWork;
+          const combinedRemaining = (workItem.remainingWork || 0) + rollup.totalRemainingWork;
+          const combinedProgress = calculateProgress(combinedOriginal, combinedCompleted, combinedRemaining);
+
+          result += `### 🎯 Combined Effort Summary\n\n`;
+          result += `| Metric | Direct | Children | **Total** |\n`;
+          result += `|--------|--------|----------|-----------|\n`;
+          result += `| **Original** | ${formatEffort(workItem.originalEstimate || 0)} | ${formatEffort(rollup.totalOriginalEstimate)} | **${formatEffort(combinedOriginal)}** |\n`;
+          result += `| **Completed** | ${formatEffort(workItem.completedWork || 0)} | ${formatEffort(rollup.totalCompletedWork)} | **${formatEffort(combinedCompleted)}** |\n`;
+          result += `| **Remaining** | ${formatEffort(workItem.remainingWork || 0)} | ${formatEffort(rollup.totalRemainingWork)} | **${formatEffort(combinedRemaining)}** |\n`;
+          
+          const combinedProgressBars = Math.floor(combinedProgress.percentage / 10);
+          const combinedProgressBar = '█'.repeat(combinedProgressBars) + '░'.repeat(10 - combinedProgressBars);
+          result += `\n**Overall Progress:** \`${combinedProgressBar}\` ${combinedProgress.percentage}% (${combinedProgress.status})\n\n`;
+        }
+      }
+    }
+
+    // Relationships section
+    if (workItem.relations && workItem.relations.length > 0) {
+      result += `## 🔗 Related Work Items\n\n`;
+      
+      const relationTypes: { [key: string]: string } = {
+        'System.LinkTypes.Hierarchy-Forward': '⬇️ Child',
+        'System.LinkTypes.Hierarchy-Reverse': '⬆️ Parent',
+        'System.LinkTypes.Dependency-Forward': '➡️ Successor',
+        'System.LinkTypes.Dependency-Reverse': '⬅️ Predecessor',
+        'System.LinkTypes.Related': '🔄 Related',
+        'Microsoft.VSTS.Common.TestedBy-Forward': '🧪 Tested by',
+        'Microsoft.VSTS.Common.TestedBy-Reverse': '🧪 Tests'
+      };
+
+      workItem.relations.forEach((relation: any) => {
+        const relationEmoji = relationTypes[relation.relationshipType] || '🔗';
+        result += `- ${relationEmoji} **Work Item #${relation.relatedWorkItemId}**`;
+        if (relation.comment) {
+          result += ` - *${relation.comment}*`;
+        }
+        result += `\n`;
+      });
+      result += `\n`;
+    }
+
+    // Description section
+    result += `## 📝 Description\n\n`;
+    result += `${formatDescription(workItem.description)}\n\n`;
+
+    // Technical details section
+    result += `## 🔧 Technical Details\n\n`;
+    result += `- **Work Item ID:** ${workItem.id}\n`;
+    result += `- **Revision:** ${workItem.rev}\n`;
+    result += `- **Work Item Type:** ${workItem.workItemType}\n`;
+    if (workItem.originalEstimate || workItem.completedWork || workItem.remainingWork) {
+      result += `- **Effort Summary:** ${formatEffort(workItem.completedWork || 0)} completed of ${formatEffort(workItem.originalEstimate || 0)} estimated\n`;
+    }
+
+    return {
+      content: [
+        {
+          type: "text",
+          text: result
+        }
+      ]
+    };
   }
 
   /**

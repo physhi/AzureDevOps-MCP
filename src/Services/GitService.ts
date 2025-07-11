@@ -539,30 +539,24 @@ export class GitService extends AzureDevOpsService {
     try {
       const gitApi = await this.getGitApi();
       
-      // Get commits without search criteria
+      // Create comprehensive search criteria
+      const searchCriteria: any = {
+        itemPath: params.itemPath,
+        $skip: params.skip || 0,
+        $top: params.top || 100, // Default to 100 if not specified
+        includeStatuses: true,
+        includeWorkItems: true
+      };
+
+      // Get commits with proper search criteria for richer data
       const commits = await gitApi.getCommits(
         params.repositoryId,
-        {} // Empty search criteria
+        searchCriteria,
+        params.projectId || this.config.project
       );
       
-      // Filter by path if provided
-      let filteredCommits = commits;
-      if (params.itemPath) {
-        filteredCommits = commits.filter(commit => 
-          commit.comment && commit.comment.includes(params.itemPath || "")
-        );
-      }
-      
-      // Apply pagination if specified
-      if (params.skip && params.skip > 0) {
-        filteredCommits = filteredCommits.slice(params.skip);
-      }
-      
-      if (params.top && params.top > 0) {
-        filteredCommits = filteredCommits.slice(0, params.top);
-      }
-      
-      return filteredCommits;
+      // The commits are already filtered and paginated by the API
+      return commits || [];
     } catch (error) {
       console.error(`Error getting commit history for repository ${params.repositoryId}:`, error);
       throw error;

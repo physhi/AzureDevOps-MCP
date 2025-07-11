@@ -114,6 +114,105 @@ export class WorkItemService extends AzureDevOpsService {
   }
 
   /**
+   * Get work item with child effort roll-up
+   */
+  public async getWorkItemWithEffortRollup(params: WorkItemByIdParams): Promise<any> {
+    try {
+      const workItem = await this.getWorkItemById(params);
+      
+      // If this work item has child relationships, get effort roll-up
+      if (workItem.relations) {
+        const childRelations = workItem.relations.filter((rel: any) => 
+          rel.relationshipType === 'System.LinkTypes.Hierarchy-Forward'
+        );
+        
+        if (childRelations.length > 0) {
+          // Fetch child work items to calculate effort roll-up
+          const childEffort = await this.calculateChildEffort(childRelations);
+          
+          // Add roll-up information to the work item
+          workItem.childEffortRollup = {
+            childCount: childRelations.length,
+            totalOriginalEstimate: childEffort.totalOriginal,
+            totalCompletedWork: childEffort.totalCompleted,
+            totalRemainingWork: childEffort.totalRemaining,
+            childWorkItems: childEffort.childDetails
+          };
+        }
+      }
+      
+      return workItem;
+    } catch (error) {
+      console.error(`Error getting work item with effort rollup ${params.id}:`, error);
+      throw error;
+    }
+  }
+
+  /**
+   * Calculate effort roll-up from child work items
+   */
+  private async calculateChildEffort(childRelations: any[]): Promise<{
+    totalOriginal: number;
+    totalCompleted: number;
+    totalRemaining: number;
+    childDetails: any[];
+  }> {
+    const witApi = await this.getWorkItemTrackingApi();
+    
+    let totalOriginal = 0;
+    let totalCompleted = 0;
+    let totalRemaining = 0;
+    const childDetails: any[] = [];
+    
+    // Fetch child work items in batch
+    const childIds = childRelations.map((rel: any) => rel.relatedWorkItemId);
+    
+    try {
+      const childWorkItems = await witApi.getWorkItems(
+        childIds,
+        ['System.Id', 'System.Title', 'System.WorkItemType', 'System.State',
+         'Microsoft.VSTS.Scheduling.OriginalEstimate',
+         'Microsoft.VSTS.Scheduling.CompletedWork', 
+         'Microsoft.VSTS.Scheduling.RemainingWork'],
+        undefined,
+        undefined,
+        undefined,
+        this.config.project
+      );
+      
+      childWorkItems.forEach((child: any) => {
+        const original = child.fields['Microsoft.VSTS.Scheduling.OriginalEstimate'] || 0;
+        const completed = child.fields['Microsoft.VSTS.Scheduling.CompletedWork'] || 0;
+        const remaining = child.fields['Microsoft.VSTS.Scheduling.RemainingWork'] || 0;
+        
+        totalOriginal += original;
+        totalCompleted += completed;
+        totalRemaining += remaining;
+        
+        childDetails.push({
+          id: child.id,
+          title: child.fields['System.Title'],
+          workItemType: child.fields['System.WorkItemType'],
+          state: child.fields['System.State'],
+          originalEstimate: original,
+          completedWork: completed,
+          remainingWork: remaining
+        });
+      });
+      
+    } catch (error) {
+      console.error('Error fetching child work items for effort calculation:', error);
+    }
+    
+    return {
+      totalOriginal,
+      totalCompleted,
+      totalRemaining,
+      childDetails
+    };
+  }
+
+  /**
    * Search work items using text
    */
   public async searchWorkItems(params: SearchWorkItemsParams): Promise<any> {
@@ -475,4 +574,4 @@ export class WorkItemService extends AzureDevOpsService {
       throw error;
     }
   }
-} 
+}

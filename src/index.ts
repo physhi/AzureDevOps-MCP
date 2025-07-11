@@ -712,7 +712,8 @@ async function main() {
         repositoryId: z.string().describe("The unique identifier or name of the repository to get history for. Required to identify the correct repository."),
         itemPath: z.string().optional().describe("Optional path to a specific file or folder to filter commits to only those that modified the specified path."),
         top: z.number().optional().describe("Maximum number of commits to return in the response. Use this to limit results for repositories with extensive history."),
-        skip: z.number().optional().describe("Number of commits to skip before starting to return results. Use with 'top' for implementing pagination through commit history.")
+        skip: z.number().optional().describe("Number of commits to skip before starting to return results. Use with 'top' for implementing pagination through commit history."),
+        projectId: z.string().optional().describe("The project ID or name to filter repositories by. If omitted, uses the default project from configuration.")
       },
       async (params, extra) => {
         const result = await gitTools.getCommitHistory(params);
