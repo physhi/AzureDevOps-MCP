@@ -38,11 +38,39 @@ export class GitTools {
   public async listRepositories(params: ListRepositoriesParams): Promise<McpResponse> {
     try {
       const repositories = await this.gitService.listRepositories(params);
-      return formatMcpResponse(repositories, `Found ${repositories.length} repositories`);
+      const formattedTable = this.formatRepositoriesTable(repositories);
+      return formatMcpResponse(repositories, formattedTable);
     } catch (error) {
       console.error('Error in listRepositories tool:', error);
       return formatErrorResponse(error);
     }
+  }
+
+  /**
+   * Formats repositories data into a readable table format
+   */
+  private formatRepositoriesTable(repositories: any[]): string {
+    if (!repositories || repositories.length === 0) {
+      return "No repositories found.";
+    }
+
+    // Table header
+    let table = "## Repositories\n\n";
+    table += "| Repository Name | Repository Id | Repository URL |\n";
+    table += "|-----------------|---------------|----------------|\n";
+
+    // Table rows
+    repositories.forEach(repo => {
+      const name = repo.name || 'N/A';
+      const id = repo.id || 'N/A';
+      const url = repo.webUrl || repo.remoteUrl || 'N/A';
+      
+      table += `| ${name} | ${id} | ${url} |\n`;
+    });
+
+    table += `\n**Total repositories:** ${repositories.length}`;
+    
+    return table;
   }
 
   /**
@@ -168,11 +196,47 @@ export class GitTools {
   public async getPullRequest(params: GetPullRequestParams): Promise<McpResponse> {
     try {
       const pullRequest = await this.gitService.getPullRequest(params);
-      return formatMcpResponse(pullRequest, `Pull request ${params.pullRequestId} details`);
+      const formattedText = this.formatPullRequestText(pullRequest);
+      return formatMcpResponse(pullRequest, formattedText);
     } catch (error) {
       console.error('Error in getPullRequest tool:', error);
       return formatErrorResponse(error);
     }
+  }
+
+  /**
+   * Formats pull request data into readable text format
+   */
+  private formatPullRequestText(pullRequest: any): string {
+    return `---
+# Title
+
+${pullRequest.title || 'N/A'}
+
+## Author:
+
+Name: ${pullRequest.createdBy?.displayName || 'N/A'}
+
+## Description
+
+${pullRequest.description || 'N/A'}
+
+## Repository Detials
+
+ProjectId: ${pullRequest.repository?.project?.id || 'N/A'}
+ProjectName: ${pullRequest.repository?.project?.name || 'N/A'}
+
+Name: ${pullRequest.repository?.name || 'N/A'}
+Id: ${pullRequest.repository?.id || 'N/A'}
+
+## Branch Data
+
+SourceBranch: ${pullRequest.sourceRefName || 'N/A'}
+TargetBranch: ${pullRequest.targetRefName || 'N/A'}
+
+SourceCommitId: ${pullRequest.lastMergeSourceCommit?.commitId || 'N/A'}
+TargetCommitId: ${pullRequest.lastMergeTargetCommit?.commitId || 'N/A'}
+---`;
   }
 
   /**
@@ -181,11 +245,158 @@ export class GitTools {
   public async getPullRequestComments(params: GetPullRequestCommentsParams): Promise<McpResponse> {
     try {
       const comments = await this.gitService.getPullRequestComments(params);
-      return formatMcpResponse(comments, `Retrieved comments for pull request ${params.pullRequestId}`);
+      const formattedDocument = this.formatPullRequestCommentsDocument(comments, params.pullRequestId);
+      return formatMcpResponse(comments, formattedDocument);
     } catch (error) {
       console.error('Error in getPullRequestComments tool:', error);
       return formatErrorResponse(error);
     }
+  }
+
+  /**
+   * Formats pull request comments data into a readable document format
+   */
+  private formatPullRequestCommentsDocument(data: any, pullRequestId: number): string {
+    if (!data || (!Array.isArray(data) && !data.length && !data.value)) {
+      return `# Pull Request ${pullRequestId} - Comments\n\nNo comments found in this pull request.`;
+    }
+
+    // Handle both array and object with value property
+    const threads = Array.isArray(data) ? data : (data.value || []);
+    
+    if (threads.length === 0) {
+      return `# Pull Request ${pullRequestId} - Comments\n\nNo comments found in this pull request.`;
+    }
+
+    let document = `# Pull Request ${pullRequestId} - Comments & Activity\n\n`;
+    document += `**Total threads:** ${threads.length}\n\n`;
+    document += `---\n\n`;
+
+    threads.forEach((thread: any, index: number) => {
+      document += this.formatCommentThread(thread, index + 1);
+      document += `\n---\n\n`;
+    });
+
+    return document;
+  }
+
+  /**
+   * Formats a single comment thread
+   */
+  private formatCommentThread(thread: any, threadNumber: number): string {
+    const threadId = thread.id || 'Unknown';
+    const publishedDate = thread.publishedDate ? new Date(thread.publishedDate).toLocaleString() : 'Unknown';
+    const lastUpdated = thread.lastUpdatedDate ? new Date(thread.lastUpdatedDate).toLocaleString() : 'Unknown';
+    
+    let threadDoc = `## Thread ${threadNumber} (ID: ${threadId})\n\n`;
+    threadDoc += `**Published:** ${publishedDate}  \n`;
+    threadDoc += `**Last Updated:** ${lastUpdated}  \n`;
+
+    // Determine thread type and context
+    const threadType = thread.properties?.CodeReviewThreadType?.$value || 'Unknown';
+    threadDoc += `**Type:** ${this.getThreadTypeDescription(threadType)}  \n`;
+
+    // Add file context if available
+    if (thread.threadContext?.filePath) {
+      threadDoc += `**File:** \`${thread.threadContext.filePath}\`  \n`;
+      if (thread.threadContext.rightFileStart && thread.threadContext.rightFileEnd) {
+        threadDoc += `**Lines:** ${thread.threadContext.rightFileStart.line}-${thread.threadContext.rightFileEnd.line}  \n`;
+      }
+    }
+
+    threadDoc += `\n`;
+
+    // Format comments in the thread
+    if (thread.comments && thread.comments.length > 0) {
+      threadDoc += `### Comments:\n\n`;
+      
+      thread.comments.forEach((comment: any, commentIndex: number) => {
+        threadDoc += this.formatSingleComment(comment, commentIndex + 1, thread.identities);
+      });
+    }
+
+    // Add additional context based on thread type
+    threadDoc += this.formatThreadSpecificInfo(thread, threadType);
+
+    return threadDoc;
+  }
+
+  /**
+   * Formats a single comment
+   */
+  private formatSingleComment(comment: any, commentNumber: number, identities: any): string {
+    const author = comment.author?.displayName || 'Unknown Author';
+    const content = comment.content || 'No content';
+    const publishedDate = comment.publishedDate ? new Date(comment.publishedDate).toLocaleString() : 'Unknown';
+    const isReply = comment.parentCommentId > 0;
+    
+    let commentDoc = `${isReply ? '  ' : ''}**${isReply ? '↳ Reply' : 'Comment'} ${commentNumber}** by **${author}**  \n`;
+    commentDoc += `${isReply ? '  ' : ''}*${publishedDate}*\n\n`;
+    commentDoc += `${isReply ? '  ' : ''}> ${content}\n\n`;
+
+    // Add likes if any
+    if (comment.usersLiked && comment.usersLiked.length > 0) {
+      commentDoc += `${isReply ? '  ' : ''}👍 *${comment.usersLiked.length} like(s)*\n\n`;
+    }
+
+    return commentDoc;
+  }
+
+  /**
+   * Gets a human-readable description for thread types
+   */
+  private getThreadTypeDescription(threadType: string): string {
+    switch (threadType) {
+      case 'RefUpdate': return 'Branch Update';
+      case 'ReviewersUpdate': return 'Reviewers Change';
+      case 'IsDraftUpdate': return 'Draft Status Change';
+      case 'CodeReview': return 'Code Review Comment';
+      case 'General': return 'General Comment';
+      default: return threadType || 'Unknown';
+    }
+  }
+
+  /**
+   * Formats thread-specific information
+   */
+  private formatThreadSpecificInfo(thread: any, threadType: string): string {
+    let info = '';
+
+    if (threadType === 'RefUpdate' && thread.properties) {
+      const refName = thread.properties.CodeReviewRefName?.$value;
+      const commitCount = thread.properties.CodeReviewRefNewCommitsCount?.$value;
+      const newCommits = thread.properties.CodeReviewRefNewCommits?.$value;
+      
+      if (refName) {
+        info += `**Updated Branch:** \`${refName}\`  \n`;
+      }
+      if (commitCount) {
+        info += `**New Commits:** ${commitCount}  \n`;
+      }
+      if (newCommits) {
+        const commits = newCommits.split(';');
+        info += `**Commit IDs:**\n`;
+        commits.forEach((commit: string) => {
+          info += `  - \`${commit.substring(0, 8)}...\`\n`;
+        });
+      }
+      info += `\n`;
+    }
+
+    if (threadType === 'ReviewersUpdate' && thread.properties) {
+      const added = thread.properties.CodeReviewReviewersUpdatedNumAdded?.$value;
+      const removed = thread.properties.CodeReviewReviewersUpdatedNumRemoved?.$value;
+      
+      if (added > 0) {
+        info += `**Reviewers Added:** ${added}  \n`;
+      }
+      if (removed > 0) {
+        info += `**Reviewers Removed:** ${removed}  \n`;
+      }
+      info += `\n`;
+    }
+
+    return info;
   }
 
   /**
@@ -285,11 +496,67 @@ export class GitTools {
   public async getAllPullRequestChanges(params: GetAllPullRequestChangesParams): Promise<McpResponse> {
     try {
       const changes = await this.gitService.getAllPullRequestChanges(params);
-      return formatMcpResponse(changes, `Retrieved all changes for pull request ${params.pullRequestId}`);
+      const formattedTable = this.formatPullRequestChangesTable(changes);
+      return formatMcpResponse(changes, formattedTable);
     } catch (error) {
       console.error('Error in getAllPullRequestChanges tool:', error);
       return formatErrorResponse(error);
     }
+  }
+
+  /**
+   * Formats pull request changes data into a readable table format
+   */
+  private formatPullRequestChangesTable(data: any): string {
+    if (!data || !data.changes || data.changes.length === 0) {
+      return "No changes found in this pull request.";
+    }
+
+    const changes = data.changes;
+    
+    // Helper function to convert change type to readable string
+    const getChangeTypeString = (changeType: number): string => {
+      switch (changeType) {
+        case 1: return 'Added';
+        case 2: return 'Modified';
+        case 3: return 'Deleted';
+        default: return 'Unknown';
+      }
+    };
+
+    // Helper function to get file extension for easier scanning
+    const getFileExtension = (path: string): string => {
+      const lastDot = path.lastIndexOf('.');
+      return lastDot > -1 ? path.substring(lastDot) : '';
+    };
+
+    // Table header
+    let table = `## Pull Request Changes\n\n`;
+    table += "| # | Change Type | File Path | Extension |\n";
+    table += "|---|-------------|-----------|----------|\n";
+
+    // Table rows
+    changes.forEach((change: any, index: number) => {
+      const changeNum = (index + 1).toString();
+      const changeType = getChangeTypeString(change.changeType);
+      const filePath = change.item?.path || 'N/A';
+      const extension = getFileExtension(filePath);
+      
+      table += `| ${changeNum} | ${changeType} | ${filePath} | ${extension} |\n`;
+    });
+
+    // Summary statistics
+    const addedCount = changes.filter((c: any) => c.changeType === 1).length;
+    const modifiedCount = changes.filter((c: any) => c.changeType === 2).length;
+    const deletedCount = changes.filter((c: any) => c.changeType === 3).length;
+
+    table += `\n**Summary:**\n`;
+    table += `- **Total files changed:** ${data.totalCount || changes.length}\n`;
+    table += `- **Added:** ${addedCount} files\n`;
+    table += `- **Modified:** ${modifiedCount} files\n`;
+    table += `- **Deleted:** ${deletedCount} files`;
+    
+    return table;
   }
 }
 

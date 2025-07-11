@@ -12,11 +12,25 @@ export interface McpResponse {
 /**
  * Formats a response for MCP compatibility
  * @param data The data to format
- * @param message Optional message to display
+ * @param message Optional message to display (if it contains markdown formatting with --- or tables, it will be used as the primary content)
  * @param isError Whether this is an error response
  * @returns MCP-compatible response
  */
 export function formatMcpResponse(data: any, message?: string, isError = false): McpResponse {
+  // If message contains markdown formatting (starts with --- or contains table markdown), use it as primary content
+  if (message) {
+    return {
+      content: [
+        {
+          type: "text",
+          text: message
+        }
+      ],
+      rawData: data,
+      isError
+    };
+  }
+  
   return {
     content: [
       {
