@@ -18,7 +18,7 @@ export interface McpResponse {
  */
 export function formatMcpResponse(data: any, message?: string, isError = false): McpResponse {
   // If message contains markdown formatting (starts with --- or contains table markdown), use it as primary content
-  if (message) {
+  if (message && message.length > 120) {
     return {
       content: [
         {

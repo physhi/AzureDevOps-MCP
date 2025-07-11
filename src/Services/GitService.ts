@@ -776,4 +776,4 @@ export class GitService extends AzureDevOpsService {
       throw error;
     }
   }
-} 
+}

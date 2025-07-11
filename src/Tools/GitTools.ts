@@ -79,7 +79,7 @@ export class GitTools {
   public async getRepository(params: GetRepositoryParams): Promise<McpResponse> {
     try {
       const repository = await this.gitService.getRepository(params);
-      return formatMcpResponse(repository, `Repository details for ${repository.name}`);
+      return formatMcpResponse(repository);
     } catch (error) {
       console.error('Error in getRepository tool:', error);
       return formatErrorResponse(error);
@@ -92,7 +92,7 @@ export class GitTools {
   public async createRepository(params: CreateRepositoryParams): Promise<McpResponse> {
     try {
       const repository = await this.gitService.createRepository(params);
-      return formatMcpResponse(repository, `Created repository: ${repository.name}`);
+      return formatMcpResponse(repository);
     } catch (error) {
       console.error('Error in createRepository tool:', error);
       return formatErrorResponse(error);
@@ -105,7 +105,7 @@ export class GitTools {
   public async listBranches(params: ListBranchesParams): Promise<McpResponse> {
     try {
       const branches = await this.gitService.listBranches(params);
-      return formatMcpResponse(branches, `Found ${branches.length} branches`);
+      return formatMcpResponse(branches);
     } catch (error) {
       console.error('Error in listBranches tool:', error);
       return formatErrorResponse(error);
@@ -118,7 +118,7 @@ export class GitTools {
   public async searchCode(params: SearchCodeParams): Promise<McpResponse> {
     try {
       const items = await this.gitService.searchCode(params);
-      return formatMcpResponse(items, `Found ${items.length} matching files`);
+      return formatMcpResponse(items);
     } catch (error) {
       console.error('Error in searchCode tool:', error);
       return formatErrorResponse(error);
@@ -131,7 +131,7 @@ export class GitTools {
   public async browseRepository(params: BrowseRepositoryParams): Promise<McpResponse> {
     try {
       const items = await this.gitService.browseRepository(params);
-      return formatMcpResponse(items, `Found ${items.length} items in repository`);
+      return formatMcpResponse(items);
     } catch (error) {
       console.error('Error in browseRepository tool:', error);
       return formatErrorResponse(error);
@@ -144,7 +144,7 @@ export class GitTools {
   public async getFileContent(params: GetFileContentParams): Promise<McpResponse> {
     try {
       const file = await this.gitService.getFileContent(params);
-      return formatMcpResponse(file, `Content of file: ${params.path}`);
+      return formatMcpResponse(file);
     } catch (error) {
       console.error('Error in getFileContent tool:', error);
       return formatErrorResponse(error);
@@ -157,7 +157,7 @@ export class GitTools {
   public async getCommitHistory(params: GetCommitHistoryParams): Promise<McpResponse> {
     try {
       const commits = await this.gitService.getCommitHistory(params);
-      return formatMcpResponse(commits, `Found ${commits.length} commits`);
+      return formatMcpResponse(commits);
     } catch (error) {
       console.error('Error in getCommitHistory tool:', error);
       return formatErrorResponse(error);
@@ -170,7 +170,7 @@ export class GitTools {
   public async listPullRequests(params: ListPullRequestsParams): Promise<McpResponse> {
     try {
       const pullRequests = await this.gitService.getPullRequests(params);
-      return formatMcpResponse(pullRequests, `Found ${pullRequests.length} pull requests`);
+      return formatMcpResponse(pullRequests);
     } catch (error) {
       console.error('Error in listPullRequests tool:', error);
       return formatErrorResponse(error);
@@ -183,7 +183,7 @@ export class GitTools {
   public async createPullRequest(params: CreatePullRequestParams): Promise<McpResponse> {
     try {
       const pullRequest = await this.gitService.createPullRequest(params);
-      return formatMcpResponse(pullRequest, `Created pull request: ${pullRequest.pullRequestId}`);
+      return formatMcpResponse(pullRequest);
     } catch (error) {
       console.error('Error in createPullRequest tool:', error);
       return formatErrorResponse(error);
@@ -405,7 +405,7 @@ TargetCommitId: ${pullRequest.lastMergeTargetCommit?.commitId || 'N/A'}
   public async approvePullRequest(params: ApprovePullRequestParams): Promise<McpResponse> {
     try {
       const result = await this.gitService.approvePullRequest(params);
-      return formatMcpResponse(result, `Approved pull request ${params.pullRequestId}`);
+      return formatMcpResponse(result);
     } catch (error) {
       console.error('Error in approvePullRequest tool:', error);
       return formatErrorResponse(error);
@@ -418,7 +418,7 @@ TargetCommitId: ${pullRequest.lastMergeTargetCommit?.commitId || 'N/A'}
   public async mergePullRequest(params: MergePullRequestParams): Promise<McpResponse> {
     try {
       const result = await this.gitService.mergePullRequest(params);
-      return formatMcpResponse(result, `Merged pull request ${params.pullRequestId}`);
+      return formatMcpResponse(result);
     } catch (error) {
       console.error('Error in mergePullRequest tool:', error);
       return formatErrorResponse(error);
@@ -431,7 +431,7 @@ TargetCommitId: ${pullRequest.lastMergeTargetCommit?.commitId || 'N/A'}
   public async addPullRequestInlineComment(params: AddPullRequestInlineCommentParams): Promise<McpResponse> {
     try {
       const result = await this.gitService.addPullRequestInlineComment(params);
-      return formatMcpResponse(result, `Added inline comment to pull request ${params.pullRequestId}`);
+      return formatMcpResponse(result);
     } catch (error) {
       console.error('Error in addPullRequestInlineComment tool:', error);
       return formatErrorResponse(error);
@@ -444,7 +444,7 @@ TargetCommitId: ${pullRequest.lastMergeTargetCommit?.commitId || 'N/A'}
   public async addPullRequestFileComment(params: AddPullRequestFileCommentParams): Promise<McpResponse> {
     try {
       const result = await this.gitService.addPullRequestFileComment(params);
-      return formatMcpResponse(result, `Added file comment to pull request ${params.pullRequestId}`);
+      return formatMcpResponse(result);
     } catch (error) {
       console.error('Error in addPullRequestFileComment tool:', error);
       return formatErrorResponse(error);
@@ -457,7 +457,7 @@ TargetCommitId: ${pullRequest.lastMergeTargetCommit?.commitId || 'N/A'}
   public async addPullRequestComment(params: AddPullRequestCommentParams): Promise<McpResponse> {
     try {
       const result = await this.gitService.addPullRequestComment(params);
-      return formatMcpResponse(result, `Added comment to pull request ${params.pullRequestId}`);
+      return formatMcpResponse(result);
     } catch (error) {
       console.error('Error in addPullRequestComment tool:', error);
       return formatErrorResponse(error);
@@ -470,7 +470,7 @@ TargetCommitId: ${pullRequest.lastMergeTargetCommit?.commitId || 'N/A'}
   public async getPullRequestFileChanges(params: GetPullRequestFileChangesParams): Promise<McpResponse> {
     try {
       const changes = await this.gitService.getPullRequestFileChanges(params);
-      return formatMcpResponse(changes, `Retrieved changes for file in pull request ${params.pullRequestId}`);
+      return formatMcpResponse(changes);
     } catch (error) {
       console.error('Error in getPullRequestFileChanges tool:', error);
       return formatErrorResponse(error);
@@ -483,7 +483,7 @@ TargetCommitId: ${pullRequest.lastMergeTargetCommit?.commitId || 'N/A'}
   public async getPullRequestChangesCount(params: GetPullRequestChangesCountParams): Promise<McpResponse> {
     try {
       const count = await this.gitService.getPullRequestChangesCount(params);
-      return formatMcpResponse(count, `Retrieved changes count for pull request ${params.pullRequestId}`);
+      return formatMcpResponse(count);
     } catch (error) {
       console.error('Error in getPullRequestChangesCount tool:', error);
       return formatErrorResponse(error);
@@ -527,34 +527,115 @@ TargetCommitId: ${pullRequest.lastMergeTargetCommit?.commitId || 'N/A'}
     // Helper function to get file extension for easier scanning
     const getFileExtension = (path: string): string => {
       const lastDot = path.lastIndexOf('.');
-      return lastDot > -1 ? path.substring(lastDot) : '';
+      return lastDot > -1 ? path.substring(lastDot) : 'No ext';
     };
 
-    // Table header
-    let table = `## Pull Request Changes\n\n`;
-    table += "| # | Change Type | File Path | Extension |\n";
-    table += "|---|-------------|-----------|----------|\n";
+    // Helper function to format file size
+    const formatFileSize = (sizeInBytes: number): string => {
+      if (!sizeInBytes || sizeInBytes === 0) return 'N/A';
+      if (sizeInBytes < 1024) return `${sizeInBytes}B`;
+      if (sizeInBytes < 1024 * 1024) return `${(sizeInBytes / 1024).toFixed(1)}KB`;
+      return `${(sizeInBytes / (1024 * 1024)).toFixed(1)}MB`;
+    };
 
-    // Table rows
+    // Helper function to get directory path
+    const getDirectory = (path: string): string => {
+      const lastSlash = path.lastIndexOf('/');
+      return lastSlash > -1 ? path.substring(0, lastSlash) : '/';
+    };
+
+    // Enhanced table header with more information
+    let table = `## Pull Request Changes (${data.totalCount || changes.length} files)\n\n`;
+    table += "| # | Change | File Path | Size | Directory | Extension | Tracking ID |\n";
+    table += "|---|--------|-----------|------|-----------|-----------|-------------|\n";
+
+    // Table rows with enhanced information
     changes.forEach((change: any, index: number) => {
       const changeNum = (index + 1).toString();
       const changeType = getChangeTypeString(change.changeType);
       const filePath = change.item?.path || 'N/A';
+      const fileSize = formatFileSize(change.item?.size);
+      const directory = getDirectory(filePath).substring(0, 40) + (getDirectory(filePath).length > 40 ? '...' : '');
       const extension = getFileExtension(filePath);
+      const trackingId = change.changeTrackingId ? change.changeTrackingId.toString().substring(0, 8) : 'N/A';
       
-      table += `| ${changeNum} | ${changeType} | ${filePath} | ${extension} |\n`;
+      table += `| ${changeNum} | ${changeType} | ${filePath} | ${fileSize} | ${directory} | ${extension} | ${trackingId} |\n`;
     });
 
-    // Summary statistics
+    // Enhanced summary statistics
     const addedCount = changes.filter((c: any) => c.changeType === 1).length;
     const modifiedCount = changes.filter((c: any) => c.changeType === 2).length;
     const deletedCount = changes.filter((c: any) => c.changeType === 3).length;
 
-    table += `\n**Summary:**\n`;
-    table += `- **Total files changed:** ${data.totalCount || changes.length}\n`;
-    table += `- **Added:** ${addedCount} files\n`;
-    table += `- **Modified:** ${modifiedCount} files\n`;
-    table += `- **Deleted:** ${deletedCount} files`;
+    // File type analysis
+    const fileTypes = new Map<string, { count: number; added: number; modified: number; deleted: number }>();
+    const directories = new Map<string, { count: number; added: number; modified: number; deleted: number }>();
+    
+    changes.forEach((change: any) => {
+      const ext = getFileExtension(change.item?.path || '');
+      const dir = getDirectory(change.item?.path || '');
+      const changeType = change.changeType;
+      
+      // File type statistics
+      if (!fileTypes.has(ext)) {
+        fileTypes.set(ext, { count: 0, added: 0, modified: 0, deleted: 0 });
+      }
+      const typeStats = fileTypes.get(ext)!;
+      typeStats.count++;
+      if (changeType === 1) typeStats.added++;
+      else if (changeType === 2) typeStats.modified++;
+      else if (changeType === 3) typeStats.deleted++;
+      
+      // Directory statistics (top-level only)
+      const topDir = dir.split('/')[1] || '/';
+      if (!directories.has(topDir)) {
+        directories.set(topDir, { count: 0, added: 0, modified: 0, deleted: 0 });
+      }
+      const dirStats = directories.get(topDir)!;
+      dirStats.count++;
+      if (changeType === 1) dirStats.added++;
+      else if (changeType === 2) dirStats.modified++;
+      else if (changeType === 3) dirStats.deleted++;
+    });
+
+    table += `\n**📊 Summary Statistics:**\n`;
+    table += `- **Total files:** ${data.totalCount || changes.length}\n`;
+    table += `- **Added:** ${addedCount} files 🟢\n`;
+    table += `- **Modified:** ${modifiedCount} files 🟡\n`;
+    table += `- **Deleted:** ${deletedCount} files 🔴\n`;
+
+    // File type breakdown (top 5)
+    const sortedTypes = Array.from(fileTypes.entries())
+      .sort((a, b) => b[1].count - a[1].count)
+      .slice(0, 5);
+    
+    if (sortedTypes.length > 0) {
+      table += `\n**📁 File Types (Top 5):**\n`;
+      sortedTypes.forEach(([ext, stats]) => {
+        table += `- **${ext}**: ${stats.count} files (${stats.added}🟢 ${stats.modified}🟡 ${stats.deleted}🔴)\n`;
+      });
+    }
+
+    // Directory breakdown (top 5)
+    const sortedDirs = Array.from(directories.entries())
+      .sort((a, b) => b[1].count - a[1].count)
+      .slice(0, 5);
+    
+    if (sortedDirs.length > 0) {
+      table += `\n**📂 Most Affected Directories:**\n`;
+      sortedDirs.forEach(([dir, stats]) => {
+        table += `- **${dir}**: ${stats.count} files (${stats.added}🟢 ${stats.modified}🟡 ${stats.deleted}🔴)\n`;
+      });
+    }
+
+    // Total size calculation (for added/modified files)
+    const totalSize = changes
+      .filter((c: any) => c.changeType === 1 || c.changeType === 2)
+      .reduce((sum: number, c: any) => sum + (c.item?.size || 0), 0);
+    
+    if (totalSize > 0) {
+      table += `\n**💾 Total Size Impact:** ${formatFileSize(totalSize)} (added/modified files)\n`;
+    }
     
     return table;
   }
