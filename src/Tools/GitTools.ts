@@ -470,7 +470,8 @@ TargetCommitId: ${pullRequest.lastMergeTargetCommit?.commitId || 'N/A'}
   public async getPullRequestFileChanges(params: GetPullRequestFileChangesParams): Promise<McpResponse> {
     try {
       const changes = await this.gitService.getPullRequestFileChanges(params);
-      return formatMcpResponse(changes);
+      const formattedContent = this.formatPullRequestFileChanges(changes);
+      return formatMcpResponse(changes, formattedContent);
     } catch (error) {
       console.error('Error in getPullRequestFileChanges tool:', error);
       return formatErrorResponse(error);
@@ -638,6 +639,225 @@ TargetCommitId: ${pullRequest.lastMergeTargetCommit?.commitId || 'N/A'}
     }
     
     return table;
+  }
+
+  /**
+   * Formats pull request file changes data into a detailed, readable format with diff content
+   */
+  private formatPullRequestFileChanges(data: any): string {
+    if (!data || !data.changeEntries || data.changeEntries.length === 0) {
+      return "No file changes found in this pull request.";
+    }
+
+    const changes = data.changeEntries;
+    
+    // Helper function to convert change type to readable string with emoji
+    const getChangeTypeString = (changeType: number): string => {
+      switch (changeType) {
+        case 1: return '🟢 Added';
+        case 2: return '🟡 Modified';
+        case 3: return '🔴 Deleted';
+        default: return '❓ Unknown';
+      }
+    };
+
+    // Helper function to get file extension
+    const getFileExtension = (path: string): string => {
+      const lastDot = path.lastIndexOf('.');
+      return lastDot > -1 ? path.substring(lastDot) : 'No ext';
+    };
+
+    // Helper function to get directory path
+    const getDirectory = (path: string): string => {
+      const lastSlash = path.lastIndexOf('/');
+      return lastSlash > -1 ? path.substring(0, lastSlash) : '/';
+    };
+
+    // Helper function to format Git object ID for display
+    const formatObjectId = (objectId: string): string => {
+      return objectId ? objectId.substring(0, 8) + '...' : 'N/A';
+    };
+
+    // Helper function to format diff content for display with better readability
+    const formatDiffContent = (diffContent: string): string => {
+      if (!diffContent || diffContent === '[Diff not available]' || diffContent === '[Content not available]') {
+        return diffContent;
+      }
+      
+      const lines = diffContent.split('\n');
+      let formattedLines: string[] = [];
+      let inHunk = false;
+      
+      lines.forEach((line, index) => {
+        if (line.startsWith('@@')) {
+          // Hunk header - make it stand out and add some spacing
+          if (inHunk) {
+            formattedLines.push(''); // Add spacing between hunks
+          }
+          formattedLines.push(`**${line}**`);
+          inHunk = true;
+        } else if (line.startsWith('+++') || line.startsWith('---')) {
+          // File headers - less prominent
+          formattedLines.push(`*${line}*`);
+        } else if (line.startsWith('+')) {
+          // Added line - green
+          formattedLines.push(`+ ${line.substring(1)}`);
+        } else if (line.startsWith('-')) {
+          // Removed line - red  
+          formattedLines.push(`- ${line.substring(1)}`);
+        } else if (line.startsWith(' ')) {
+          // Context line - normal
+          formattedLines.push(`  ${line.substring(1)}`);
+        } else if (line.trim() === '') {
+          // Empty line
+          formattedLines.push('');
+        } else {
+          // Other lines
+          formattedLines.push(line);
+        }
+      });
+      
+      return formattedLines.join('\n');
+    };
+
+    // Helper function to extract meaningful change summary
+    const getChangeSummary = (diffContent: string, changeType: number): string => {
+      if (!diffContent || diffContent === '[Diff not available]' || diffContent === '[Content not available]') {
+        return 'No diff available';
+      }
+      
+      const lines = diffContent.split('\n');
+      const addedLines = lines.filter(line => line.startsWith('+') && !line.startsWith('+++')).length;
+      const removedLines = lines.filter(line => line.startsWith('-') && !line.startsWith('---')).length;
+      const hunks = lines.filter(line => line.startsWith('@@')).length;
+      
+      // Handle specific change types
+      if (changeType === 1) {
+        // Added file
+        return `New file (${addedLines} lines)`;
+      } else if (changeType === 3) {
+        // Deleted file
+        return `Deleted file (${removedLines} lines)`;
+      } else if (changeType === 2) {
+        // Modified file
+        if (addedLines === 0 && removedLines === 0) {
+          return 'No meaningful changes (likely formatting)';
+        }
+        
+        let summary = [];
+        if (addedLines > 0) summary.push(`${addedLines} additions`);
+        if (removedLines > 0) summary.push(`${removedLines} deletions`);
+        if (hunks > 1) summary.push(`${hunks} change blocks`);
+        
+        return summary.join(', ');
+      }
+      
+      return 'Unknown change type';
+    };
+
+    let result = `## 📁 Pull Request File Changes with Diff Content\n\n`;
+
+    if (data.totalChanges && data.processedChanges && data.totalChanges > data.processedChanges) {
+      result += `**⚠️ Note:** Showing detailed diffs for ${data.processedChanges} of ${data.totalChanges} files (limited for performance)\n\n`;
+    }
+
+    changes.forEach((change: any, index: number) => {
+      const filePath = change.item?.path || 'N/A';
+      const changeType = getChangeTypeString(change.changeType);
+      const extension = getFileExtension(filePath);
+      const directory = getDirectory(filePath);
+      const changeNum = index + 1;
+
+      result += `### ${changeNum}. ${changeType} - \`${filePath}\`\n\n`;
+      
+      // File metadata table
+      result += `| Property | Value |\n`;
+      result += `|----------|-------|\n`;
+      result += `| **Directory** | \`${directory}\` |\n`;
+      result += `| **File Type** | \`${extension}\` |\n`;
+      result += `| **Change Type** | ${changeType} |\n`;
+      result += `| **Change Tracking ID** | \`${change.changeTrackingId}\` |\n`;
+      result += `| **Change ID** | \`${change.changeId}\` |\n`;
+
+      if (change.changeType === 2) { // Modified file
+        result += `| **Original Object ID** | \`${formatObjectId(change.item?.originalObjectId)}\` |\n`;
+        result += `| **Current Object ID** | \`${formatObjectId(change.item?.objectId)}\` |\n`;
+      } else if (change.changeType === 1) { // Added file
+        result += `| **Object ID** | \`${formatObjectId(change.item?.objectId)}\` |\n`;
+      } else if (change.changeType === 3) { // Deleted file
+        result += `| **Original Object ID** | \`${formatObjectId(change.item?.originalObjectId)}\` |\n`;
+      }
+
+      result += `\n`;
+
+      // Diff content
+      if (change.diffContent) {
+        result += `#### � **Diff Content:**\n\n`;
+        result += `\`\`\`diff\n${formatDiffContent(change.diffContent)}\n\`\`\`\n\n`;
+        
+        // Parse diff statistics for detailed view
+        const diffLines = change.diffContent.split('\n');
+        const addedLines = diffLines.filter((line: string) => line.startsWith('+') && !line.startsWith('+++')).length;
+        const removedLines = diffLines.filter((line: string) => line.startsWith('-') && !line.startsWith('---')).length;
+        const hunkCount = diffLines.filter((line: string) => line.startsWith('@@')).length;
+        
+        if (addedLines > 0 || removedLines > 0) {
+          result += `**📊 Statistics:**\n`;
+          if (addedLines > 0) result += `- **🟢 Added:** ${addedLines} lines\n`;
+          if (removedLines > 0) result += `- **🔴 Removed:** ${removedLines} lines\n`;
+          if (hunkCount > 0) result += `- **📝 Change blocks:** ${hunkCount}\n`;
+          result += `\n`;
+        }
+      } else {
+        result += `*No diff content available for this file.*\n\n`;
+      }
+      
+      result += `---\n\n`;
+    });
+
+    // Summary statistics
+    const addedCount = changes.filter((c: any) => c.changeType === 1).length;
+    const modifiedCount = changes.filter((c: any) => c.changeType === 2).length;
+    const deletedCount = changes.filter((c: any) => c.changeType === 3).length;
+
+    result += `## 📈 Summary Statistics\n\n`;
+    result += `- **🟢 Added:** ${addedCount} files\n`;
+    result += `- **🟡 Modified:** ${modifiedCount} files\n`;
+    result += `- **🔴 Deleted:** ${deletedCount} files\n`;
+
+    // File type breakdown
+    const fileTypes = new Map<string, { count: number; added: number; modified: number; deleted: number }>();
+    changes.forEach((change: any) => {
+      const ext = getFileExtension(change.item?.path || '');
+      if (!fileTypes.has(ext)) {
+        fileTypes.set(ext, { count: 0, added: 0, modified: 0, deleted: 0 });
+      }
+      const stats = fileTypes.get(ext)!;
+      stats.count++;
+      if (change.changeType === 1) stats.added++;
+      else if (change.changeType === 2) stats.modified++;
+      else if (change.changeType === 3) stats.deleted++;
+    });
+
+    const sortedTypes = Array.from(fileTypes.entries())
+      .sort((a, b) => b[1].count - a[1].count)
+      .slice(0, 5);
+
+    if (sortedTypes.length > 0) {
+      result += `\n**📄 File Types:**\n`;
+      sortedTypes.forEach(([ext, stats]) => {
+        result += `- **${ext}**: ${stats.count} files (${stats.added}🟢 ${stats.modified}🟡 ${stats.deleted}🔴)\n`;
+      });
+    }
+
+    // Pagination info if available
+    if (data.nextTop !== undefined || data.nextSkip !== undefined) {
+      result += `\n**📄 Pagination Info:**\n`;
+      result += `- **Next Top:** ${data.nextTop || 'N/A'}\n`;
+      result += `- **Next Skip:** ${data.nextSkip || 'N/A'}\n`;
+    }
+
+    return result;
   }
 }
 

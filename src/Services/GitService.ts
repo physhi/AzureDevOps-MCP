@@ -268,6 +268,271 @@ export class GitService extends AzureDevOpsService {
   }
 
   /**
+   * Get file content by object ID
+   */
+  public async getFileContentByObjectId(repositoryId: string, objectId: string): Promise<string> {
+    try {
+      const gitApi = await this.getGitApi();
+      
+      // Get content by blob ID (object ID)
+      const content = await gitApi.getBlobContent(
+        repositoryId,
+        objectId,
+        this.config.project
+      );
+      
+      if (Buffer.isBuffer(content)) {
+        return content.toString('utf8');
+      } else if (typeof content === 'string') {
+        return content;
+      } else if (content && typeof content === 'object' && 'pipe' in content && typeof content.pipe === 'function') {
+        // Handle stream content
+        const chunks: Buffer[] = [];
+        const stream = content as Readable;
+        
+        return new Promise((resolve, reject) => {
+          const timeout = setTimeout(() => {
+            stream.destroy();
+            reject(new Error(`Stream timeout for objectId ${objectId}`));
+          }, 30000);
+
+          stream.on('data', (chunk: Buffer) => {
+            chunks.push(chunk);
+          });
+          
+          stream.on('end', () => {
+            clearTimeout(timeout);
+            const buffer = Buffer.concat(chunks);
+            resolve(buffer.toString('utf8'));
+          });
+          
+          stream.on('error', (error) => {
+            clearTimeout(timeout);
+            reject(error);
+          });
+        });
+      }
+      
+      return '[Content not available]';
+    } catch (error) {
+      console.error(`Error getting file content by objectId ${objectId}:`, error);
+      return '[Content not available]';
+    }
+  }
+
+  /**
+   * Calculate enhanced unified diff between two file contents with better readability
+   */
+  private calculateUnifiedDiff(originalContent: string, currentContent: string, filePath: string): string {
+    const originalLines = originalContent.split('\n');
+    const currentLines = currentContent.split('\n');
+    
+    // Enhanced diff algorithm with better change grouping
+    let diffLines: string[] = [];
+    diffLines.push(`--- a${filePath}`);
+    diffLines.push(`+++ b${filePath}`);
+    
+    // Use a more sophisticated approach to find meaningful changes
+    const changes = this.findMeaningfulChanges(originalLines, currentLines);
+    
+    if (changes.length === 0) {
+      diffLines.push(`@@ -1,${originalLines.length} +1,${currentLines.length} @@`);
+      diffLines.push(' (No meaningful differences found - likely formatting changes)');
+      return diffLines.join('\n');
+    }
+    
+    // Group changes into hunks with context
+    for (const change of changes) {
+      const contextLines = 3;
+      const hunkStart = Math.max(1, change.originalStart - contextLines);
+      const hunkEnd = Math.min(originalLines.length, change.originalEnd + contextLines);
+      
+      // Add hunk header
+      const originalHunkSize = change.originalEnd - change.originalStart + 1;
+      const currentHunkSize = change.currentEnd - change.currentStart + 1;
+      const hunkHeader = `@@ -${change.originalStart},${originalHunkSize} +${change.currentStart},${currentHunkSize} @@`;
+      diffLines.push(hunkHeader);
+      
+      // Add context before
+      for (let i = hunkStart - 1; i < change.originalStart - 1; i++) {
+        if (i >= 0 && i < originalLines.length) {
+          diffLines.push(` ${originalLines[i]}`);
+        }
+      }
+      
+      // Add the actual changes
+      switch (change.type) {
+        case 'modified':
+          // Show removed lines
+          for (let i = change.originalStart - 1; i < change.originalEnd; i++) {
+            diffLines.push(`-${originalLines[i]}`);
+          }
+          // Show added lines
+          for (let i = change.currentStart - 1; i < change.currentEnd; i++) {
+            diffLines.push(`+${currentLines[i]}`);
+          }
+          break;
+        case 'added':
+          for (let i = change.currentStart - 1; i < change.currentEnd; i++) {
+            diffLines.push(`+${currentLines[i]}`);
+          }
+          break;
+        case 'removed':
+          for (let i = change.originalStart - 1; i < change.originalEnd; i++) {
+            diffLines.push(`-${originalLines[i]}`);
+          }
+          break;
+      }
+      
+      // Add context after
+      for (let i = change.originalEnd; i < Math.min(change.originalEnd + contextLines, originalLines.length); i++) {
+        diffLines.push(` ${originalLines[i]}`);
+      }
+      
+      // Add separator between hunks if there are more changes
+      if (changes.indexOf(change) < changes.length - 1) {
+        diffLines.push('');
+      }
+    }
+    
+    return diffLines.join('\n');
+  }
+
+  /**
+   * Find meaningful changes between two sets of lines
+   */
+  private findMeaningfulChanges(originalLines: string[], currentLines: string[]): any[] {
+    const changes: any[] = [];
+    let originalIndex = 0;
+    let currentIndex = 0;
+    
+    while (originalIndex < originalLines.length || currentIndex < currentLines.length) {
+      // Skip identical lines
+      while (originalIndex < originalLines.length && 
+             currentIndex < currentLines.length && 
+             this.normalizeLineForComparison(originalLines[originalIndex]) === 
+             this.normalizeLineForComparison(currentLines[currentIndex])) {
+        originalIndex++;
+        currentIndex++;
+      }
+      
+      if (originalIndex >= originalLines.length && currentIndex >= currentLines.length) {
+        break;
+      }
+      
+      // Find the end of the different section
+      const changeStartOriginal = originalIndex;
+      const changeStartCurrent = currentIndex;
+      
+      // Look ahead to find where lines become similar again
+      let foundMatch = false;
+      let lookAhead = 5; // Look ahead up to 5 lines to find a match
+      
+      for (let ahead = 1; ahead <= lookAhead && !foundMatch; ahead++) {
+        for (let origOffset = 0; origOffset <= ahead && !foundMatch; origOffset++) {
+          const currOffset = ahead - origOffset;
+          
+          if (originalIndex + origOffset < originalLines.length && 
+              currentIndex + currOffset < currentLines.length) {
+            
+            if (this.normalizeLineForComparison(originalLines[originalIndex + origOffset]) === 
+                this.normalizeLineForComparison(currentLines[currentIndex + currOffset])) {
+              
+              // Found a match, determine change type
+              if (origOffset === 0 && currOffset > 0) {
+                // Lines were added
+                changes.push({
+                  type: 'added',
+                  originalStart: originalIndex + 1,
+                  originalEnd: originalIndex + 1,
+                  currentStart: currentIndex + 1,
+                  currentEnd: currentIndex + currOffset,
+                  description: `Added ${currOffset} lines`
+                });
+                currentIndex += currOffset;
+              } else if (origOffset > 0 && currOffset === 0) {
+                // Lines were removed
+                changes.push({
+                  type: 'removed',
+                  originalStart: originalIndex + 1,
+                  originalEnd: originalIndex + origOffset,
+                  currentStart: currentIndex + 1,
+                  currentEnd: currentIndex + 1,
+                  description: `Removed ${origOffset} lines`
+                });
+                originalIndex += origOffset;
+              } else if (origOffset > 0 && currOffset > 0) {
+                // Lines were modified
+                changes.push({
+                  type: 'modified',
+                  originalStart: originalIndex + 1,
+                  originalEnd: originalIndex + origOffset,
+                  currentStart: currentIndex + 1,
+                  currentEnd: currentIndex + currOffset,
+                  description: `Modified ${Math.max(origOffset, currOffset)} lines`
+                });
+                originalIndex += origOffset;
+                currentIndex += currOffset;
+              }
+              
+              foundMatch = true;
+            }
+          }
+        }
+      }
+      
+      if (!foundMatch) {
+        // No match found, treat remaining as changes
+        if (originalIndex < originalLines.length && currentIndex < currentLines.length) {
+          // Both have remaining lines - treat as modification
+          const remainingOriginal = originalLines.length - originalIndex;
+          const remainingCurrent = currentLines.length - currentIndex;
+          changes.push({
+            type: 'modified',
+            originalStart: originalIndex + 1,
+            originalEnd: originalLines.length,
+            currentStart: currentIndex + 1,
+            currentEnd: currentLines.length,
+            description: `Modified remaining lines (${remainingOriginal} → ${remainingCurrent})`
+          });
+          break;
+        } else if (originalIndex < originalLines.length) {
+          // Only original has remaining lines - removed
+          changes.push({
+            type: 'removed',
+            originalStart: originalIndex + 1,
+            originalEnd: originalLines.length,
+            currentStart: currentIndex + 1,
+            currentEnd: currentIndex + 1,
+            description: `Removed ${originalLines.length - originalIndex} lines`
+          });
+          break;
+        } else if (currentIndex < currentLines.length) {
+          // Only current has remaining lines - added
+          changes.push({
+            type: 'added',
+            originalStart: originalIndex + 1,
+            originalEnd: originalIndex + 1,
+            currentStart: currentIndex + 1,
+            currentEnd: currentLines.length,
+            description: `Added ${currentLines.length - currentIndex} lines`
+          });
+          break;
+        }
+      }
+    }
+    
+    return changes;
+  }
+
+  /**
+   * Normalize line for comparison (remove extra whitespace, etc.)
+   */
+  private normalizeLineForComparison(line: string): string {
+    return line.trim().replace(/\s+/g, ' ');
+  }
+
+  /**
    * Get commit history
    */
   public async getCommitHistory(params: GetCommitHistoryParams): Promise<any> {
@@ -676,7 +941,7 @@ export class GitService extends AzureDevOpsService {
   }
 
   /**
-   * Get pull request file changes
+   * Get pull request file changes with diff content
    */
   public async getPullRequestFileChanges(params: GetPullRequestFileChangesParams): Promise<any> {
     try {
@@ -694,22 +959,145 @@ export class GitService extends AzureDevOpsService {
         );
         
         // Filter changes for the specific file
-        return {
+        const filteredChanges = {
           ...changes,
           changeEntries: changes.changeEntries?.filter(entry => entry.item?.path === params.path) || []
         };
+
+        // Enhance with diff content for each change
+        const enhancedChangeEntries = await Promise.all(
+          filteredChanges.changeEntries.map(async (change: any) => {
+            let diffContent = '';
+            
+            if (change.changeType === 2 && change.item?.originalObjectId && change.item?.objectId) {
+              // Modified file - get both versions and calculate diff
+              try {
+                const [originalContent, currentContent] = await Promise.all([
+                  this.getFileContentByObjectId(params.repositoryId, change.item.originalObjectId),
+                  this.getFileContentByObjectId(params.repositoryId, change.item.objectId)
+                ]);
+                
+                diffContent = this.calculateUnifiedDiff(originalContent, currentContent, change.item.path);
+              } catch (error) {
+                console.error(`Error getting diff for ${change.item.path}:`, error);
+                diffContent = '[Diff not available]';
+              }
+            } else if (change.changeType === 1 && change.item?.objectId) {
+              // Added file - get new content and format as all additions
+              try {
+                const newContent = await this.getFileContentByObjectId(params.repositoryId, change.item.objectId);
+                diffContent = this.calculateAddedFileDiff(newContent, change.item.path);
+              } catch (error) {
+                console.error(`Error getting content for new file ${change.item.path}:`, error);
+                diffContent = '[Content not available]';
+              }
+            } else if (change.changeType === 3 && change.item?.originalObjectId) {
+              // Deleted file - get original content and format as all deletions
+              try {
+                const originalContent = await this.getFileContentByObjectId(params.repositoryId, change.item.originalObjectId);
+                diffContent = this.calculateDeletedFileDiff(originalContent, change.item.path);
+              } catch (error) {
+                console.error(`Error getting content for deleted file ${change.item.path}:`, error);
+                diffContent = '[Content not available]';
+              }
+            }
+            
+            return {
+              ...change,
+              diffContent
+            };
+          })
+        );
+
+        return {
+          ...filteredChanges,
+          changeEntries: enhancedChangeEntries
+        };
       }
       
-      // If no path is provided, get all changes
+      // If no path is provided, get all changes with diffs
       const changes = await gitApi.getPullRequestIterationChanges(
         params.repositoryId,
         params.pullRequestId,
         1, // First iteration
-        this.config.project,
-        1 // iteration number
+        this.config.project
+        // Remove the second iteration parameter that might be causing issues
       );
+
+      // Enhance with diff content for each change (smart selection to show variety)
+      const allChanges = changes.changeEntries || [];
       
-      return changes;
+      // Smart selection: try to get examples of different change types
+      const modifiedFiles = allChanges.filter((c: any) => c.changeType === 2); // Modified
+      const addedFiles = allChanges.filter((c: any) => c.changeType === 1);     // Added
+      const deletedFiles = allChanges.filter((c: any) => c.changeType === 3);   // Deleted
+      
+      let changesToProcess: any[] = [];
+      
+      // Take up to 2 from each type, prioritizing modified files, then added, then deleted
+      changesToProcess.push(...modifiedFiles.slice(0, 2));
+      changesToProcess.push(...addedFiles.slice(0, 2));
+      changesToProcess.push(...deletedFiles.slice(0, 1));
+      
+      // If we have fewer than 5, fill up with remaining files
+      if (changesToProcess.length < 5) {
+        const remainingFiles = allChanges.filter((c: any) => !changesToProcess.includes(c));
+        changesToProcess.push(...remainingFiles.slice(0, 5 - changesToProcess.length));
+      }
+      
+      // Limit to 5 files total for performance
+      changesToProcess = changesToProcess.slice(0, 5);
+      
+      const enhancedChangeEntries = await Promise.all(
+        changesToProcess.map(async (change: any) => {
+          let diffContent = '';
+          
+          if (change.changeType === 2 && change.item?.originalObjectId && change.item?.objectId) {
+            // Modified file - get both versions and calculate diff
+            try {
+              const [originalContent, currentContent] = await Promise.all([
+                this.getFileContentByObjectId(params.repositoryId, change.item.originalObjectId),
+                this.getFileContentByObjectId(params.repositoryId, change.item.objectId)
+              ]);
+              
+              diffContent = this.calculateUnifiedDiff(originalContent, currentContent, change.item.path);
+            } catch (error) {
+              console.error(`Error getting diff for ${change.item.path}:`, error);
+              diffContent = '[Diff not available]';
+            }
+          } else if (change.changeType === 1 && change.item?.objectId) {
+            // Added file - get new content and format as all additions
+            try {
+              const newContent = await this.getFileContentByObjectId(params.repositoryId, change.item.objectId);
+              diffContent = this.calculateAddedFileDiff(newContent, change.item.path);
+            } catch (error) {
+              console.error(`Error getting content for new file ${change.item.path}:`, error);
+              diffContent = '[Content not available]';
+            }
+          } else if (change.changeType === 3 && change.item?.originalObjectId) {
+            // Deleted file - get original content and format as all deletions
+            try {
+              const originalContent = await this.getFileContentByObjectId(params.repositoryId, change.item.originalObjectId);
+              diffContent = this.calculateDeletedFileDiff(originalContent, change.item.path);
+            } catch (error) {
+              console.error(`Error getting content for deleted file ${change.item.path}:`, error);
+              diffContent = '[Content not available]';
+            }
+          }
+          
+          return {
+            ...change,
+            diffContent
+          };
+        })
+      );
+
+      return {
+        ...changes,
+        changeEntries: enhancedChangeEntries,
+        totalChanges: changes.changeEntries?.length || 0,
+        processedChanges: enhancedChangeEntries.length
+      };
     } catch (error) {
       console.error(`Error getting file changes for pull request ${params.pullRequestId}:`, error);
       throw error;
@@ -775,5 +1163,95 @@ export class GitService extends AzureDevOpsService {
       console.error(`Error getting all changes for pull request ${params.pullRequestId}:`, error);
       throw error;
     }
+  }
+
+  /**
+   * Calculate diff for an added file (all content is new)
+   */
+  private calculateAddedFileDiff(content: string, filePath: string): string {
+    const lines = content.split('\n');
+    
+    if (lines.length === 0) {
+      return `--- /dev/null\n+++ b${filePath}\n@@ -0,0 +1,0 @@\n(Empty file)`;
+    }
+    
+    // For large files, show a summary instead of all content
+    const maxLinesToShow = 100;
+    const isLargeFile = lines.length > maxLinesToShow;
+    
+    let diffLines: string[] = [];
+    diffLines.push(`--- /dev/null`);
+    diffLines.push(`+++ b${filePath}`);
+    
+    if (isLargeFile) {
+      // Show first 50 lines, then a summary, then last 10 lines
+      const firstLines = lines.slice(0, 50);
+      const lastLines = lines.slice(-10);
+      const hiddenLineCount = lines.length - firstLines.length - lastLines.length;
+      
+      diffLines.push(`@@ -0,0 +1,${lines.length} @@`);
+      
+      // Add first 50 lines
+      firstLines.forEach(line => diffLines.push(`+${line}`));
+      
+      // Add summary of hidden content
+      if (hiddenLineCount > 0) {
+        diffLines.push(`+... (${hiddenLineCount} more lines) ...`);
+      }
+      
+      // Add last 10 lines
+      lastLines.forEach(line => diffLines.push(`+${line}`));
+    } else {
+      // Show all content for smaller files
+      diffLines.push(`@@ -0,0 +1,${lines.length} @@`);
+      lines.forEach(line => diffLines.push(`+${line}`));
+    }
+    
+    return diffLines.join('\n');
+  }
+
+  /**
+   * Calculate diff for a deleted file (all content was removed)
+   */
+  private calculateDeletedFileDiff(content: string, filePath: string): string {
+    const lines = content.split('\n');
+    
+    if (lines.length === 0) {
+      return `--- a${filePath}\n+++ /dev/null\n@@ -1,0 +0,0 @@\n(Empty file was deleted)`;
+    }
+    
+    // For large files, show a summary instead of all content
+    const maxLinesToShow = 100;
+    const isLargeFile = lines.length > maxLinesToShow;
+    
+    let diffLines: string[] = [];
+    diffLines.push(`--- a${filePath}`);
+    diffLines.push(`+++ /dev/null`);
+    
+    if (isLargeFile) {
+      // Show first 50 lines, then a summary, then last 10 lines
+      const firstLines = lines.slice(0, 50);
+      const lastLines = lines.slice(-10);
+      const hiddenLineCount = lines.length - firstLines.length - lastLines.length;
+      
+      diffLines.push(`@@ -1,${lines.length} +0,0 @@`);
+      
+      // Add first 50 lines
+      firstLines.forEach(line => diffLines.push(`-${line}`));
+      
+      // Add summary of hidden content
+      if (hiddenLineCount > 0) {
+        diffLines.push(`-... (${hiddenLineCount} more lines) ...`);
+      }
+      
+      // Add last 10 lines
+      lastLines.forEach(line => diffLines.push(`-${line}`));
+    } else {
+      // Show all content for smaller files
+      diffLines.push(`@@ -1,${lines.length} +0,0 @@`);
+      lines.forEach(line => diffLines.push(`-${line}`));
+    }
+    
+    return diffLines.join('\n');
   }
 }
