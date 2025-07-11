@@ -373,11 +373,202 @@ export class WorkItemTools {
   public async searchWorkItems(params: SearchWorkItemsParams): Promise<McpResponse> {
     try {
       const results = await this.workItemService.searchWorkItems(params);
-      return formatMcpResponse(results, `Found ${results.workItems?.length || 0} matching work items`);
+      return this.formatSearchResultsResponse(results);
     } catch (error) {
       console.error('Error in searchWorkItems tool:', error);
       return formatErrorResponse(error);
     }
+  }
+
+  /**
+   * Format search results response with comprehensive tabular view
+   */
+  private formatSearchResultsResponse(results: any): McpResponse {
+    if (!results || !results.workItems || results.workItems.length === 0) {
+      return {
+        content: [
+          {
+            type: "text",
+            text: `## 🔍 Search Results\n\nNo work items found matching "${results?.searchQuery || 'your search'}".\n\nTry:\n- Using different keywords\n- Searching for partial words\n- Looking for work item types (Bug, Task, Feature, etc.)`
+          }
+        ]
+      };
+    }
+
+    // Helper functions from the detailed work item formatter
+    const formatDate = (dateString: string): string => {
+      if (!dateString) return 'Not set';
+      
+      try {
+        const date = new Date(dateString);
+        const now = new Date();
+        const diffMs = now.getTime() - date.getTime();
+        const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+        const diffHours = Math.floor(diffMs / (1000 * 60 * 60));
+
+        let timeAgo = '';
+        if (diffDays > 0) {
+          timeAgo = `${diffDays}d ago`;
+        } else if (diffHours > 0) {
+          timeAgo = `${diffHours}h ago`;
+        } else {
+          timeAgo = 'Recent';
+        }
+
+        return timeAgo;
+      } catch {
+        return 'Unknown';
+      }
+    };
+
+    const getWorkItemTypeEmoji = (type: string): string => {
+      const typeMap: { [key: string]: string } = {
+        'Epic': '🎯',
+        'Feature': '🚀',
+        'User Story': '📖',
+        'Task': '✅',
+        'Bug': '🐛',
+        'Test Case': '🧪',
+        'Issue': '⚠️'
+      };
+      return typeMap[type] || '📋';
+    };
+
+    const getStateEmoji = (state: string): string => {
+      const stateMap: { [key: string]: string } = {
+        'New': '🆕',
+        'Active': '🔄',
+        'In Progress': '⚡',
+        'Resolved': '✅',
+        'Closed': '✅',
+        'Done': '✅',
+        'Removed': '❌',
+        'To Do': '📋',
+        'Doing': '⚡',
+        'Testing': '🧪'
+      };
+      return stateMap[state] || '📌';
+    };
+
+    const getPriorityEmoji = (priority: number): string => {
+      if (priority === 1) return '🔴';
+      if (priority === 2) return '🟡';
+      if (priority === 3) return '🟢';
+      if (priority === 4) return '🔵';
+      return '⚪';
+    };
+
+    const formatEffort = (hours: number | null | undefined): string => {
+      if (!hours || hours === 0) return '-';
+      if (hours < 1) return `${Math.round(hours * 60)}m`;
+      return `${hours}h`;
+    };
+
+    const truncateTitle = (title: string, maxLength: number = 50): string => {
+      if (!title) return 'No title';
+      return title.length > maxLength ? title.substring(0, maxLength) + '...' : title;
+    };
+
+    // Generate search results header
+    let result = `## 🔍 Search Results: "${results.searchQuery}"\n\n`;
+    result += `**Found:** ${results.totalResults} items | **Showing:** ${results.returnedResults} items\n\n`;
+
+    // Main results table
+    result += `| Type | ID | Title | Status | Assigned | Priority | Effort | Updated |\n`;
+    result += `|------|----|----|--------|----------|----------|--------|----------|\n`;
+
+    results.workItems.forEach((workItem: any) => {
+      const typeEmoji = getWorkItemTypeEmoji(workItem.workItemType);
+      const stateEmoji = getStateEmoji(workItem.state);
+      const priorityEmoji = getPriorityEmoji(workItem.priority);
+      const assignedTo = workItem.assignedTo ? workItem.assignedTo.displayName.split(' ')[0] : 'Unassigned';
+      const effortInfo = workItem.originalEstimate || workItem.completedWork || workItem.remainingWork 
+        ? `${formatEffort(workItem.completedWork)}/${formatEffort(workItem.originalEstimate)}`
+        : '-';
+      
+      result += `| ${typeEmoji} ${workItem.workItemType} | **#${workItem.id}** | ${truncateTitle(workItem.title)} | ${stateEmoji} ${workItem.state} | ${assignedTo} | ${priorityEmoji} | ${effortInfo} | ${formatDate(workItem.changedDate)} |\n`;
+    });
+
+    result += `\n`;
+
+    // Summary by work item type
+    const typeSummary = results.workItems.reduce((acc: any, item: any) => {
+      acc[item.workItemType] = (acc[item.workItemType] || 0) + 1;
+      return acc;
+    }, {});
+
+    result += `### 📊 Summary by Type\n\n`;
+    Object.entries(typeSummary).forEach(([type, count]) => {
+      const emoji = getWorkItemTypeEmoji(type);
+      result += `- ${emoji} **${type}**: ${count} items\n`;
+    });
+
+    // Summary by state
+    const stateSummary = results.workItems.reduce((acc: any, item: any) => {
+      acc[item.state] = (acc[item.state] || 0) + 1;
+      return acc;
+    }, {});
+
+    result += `\n### 📈 Summary by Status\n\n`;
+    Object.entries(stateSummary).forEach(([state, count]) => {
+      const emoji = getStateEmoji(state);
+      result += `- ${emoji} **${state}**: ${count} items\n`;
+    });
+
+    // Recent activity (most recently updated items)
+    const recentItems = results.workItems
+      .sort((a: any, b: any) => new Date(b.changedDate).getTime() - new Date(a.changedDate).getTime())
+      .slice(0, 5);
+
+    result += `\n### ⏰ Recently Updated\n\n`;
+    recentItems.forEach((item: any) => {
+      const typeEmoji = getWorkItemTypeEmoji(item.workItemType);
+      const stateEmoji = getStateEmoji(item.state);
+      result += `- ${typeEmoji} **#${item.id}** ${truncateTitle(item.title, 40)} ${stateEmoji} *${formatDate(item.changedDate)}*\n`;
+    });
+
+    // High priority items if any
+    const highPriorityItems = results.workItems.filter((item: any) => item.priority && item.priority <= 2);
+    if (highPriorityItems.length > 0) {
+      result += `\n### 🚨 High Priority Items\n\n`;
+      highPriorityItems.forEach((item: any) => {
+        const typeEmoji = getWorkItemTypeEmoji(item.workItemType);
+        const priorityEmoji = getPriorityEmoji(item.priority);
+        const stateEmoji = getStateEmoji(item.state);
+        result += `- ${priorityEmoji} ${typeEmoji} **#${item.id}** ${truncateTitle(item.title, 40)} ${stateEmoji}\n`;
+      });
+    }
+
+    // Effort summary if any items have effort tracking
+    const itemsWithEffort = results.workItems.filter((item: any) => 
+      item.originalEstimate || item.completedWork || item.remainingWork
+    );
+
+    if (itemsWithEffort.length > 0) {
+      const totalOriginal = itemsWithEffort.reduce((sum: number, item: any) => sum + (item.originalEstimate || 0), 0);
+      const totalCompleted = itemsWithEffort.reduce((sum: number, item: any) => sum + (item.completedWork || 0), 0);
+      const totalRemaining = itemsWithEffort.reduce((sum: number, item: any) => sum + (item.remainingWork || 0), 0);
+
+      result += `\n### ⏱️ Effort Summary (${itemsWithEffort.length} items with tracking)\n\n`;
+      result += `| Metric | Value |\n`;
+      result += `|--------|-------|\n`;
+      result += `| **Total Estimated** | ${formatEffort(totalOriginal)} |\n`;
+      result += `| **Total Completed** | ${formatEffort(totalCompleted)} |\n`;
+      result += `| **Total Remaining** | ${formatEffort(totalRemaining)} |\n`;
+    }
+
+    // Instructions for getting more details
+    result += `\n---\n`;
+    result += `💡 **Tip:** Use \`getWorkItemById\` with any ID above to see full details, effort tracking, and relationships.\n`;
+
+    return {
+      content: [
+        {
+          type: "text",
+          text: result
+        }
+      ]
+    };
   }
 
   /**

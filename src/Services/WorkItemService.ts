@@ -233,7 +233,75 @@ export class WorkItemService extends AzureDevOpsService {
         project: this.config.project
       });
       
-      return queryResult;
+      // Get full work item details if we have results
+      if (queryResult.workItems && queryResult.workItems.length > 0) {
+        const workItemIds = queryResult.workItems
+          .slice(0, params.top || 50) // Limit results to avoid too many API calls
+          .map((wi: any) => wi.id);
+        
+        // Fetch detailed work item information
+        const detailedWorkItems = await witApi.getWorkItems(
+          workItemIds,
+          [
+            'System.Id', 
+            'System.Title', 
+            'System.WorkItemType',
+            'System.State', 
+            'System.AssignedTo',
+            'System.CreatedBy',
+            'System.CreatedDate',
+            'System.ChangedDate',
+            'System.AreaPath',
+            'System.IterationPath',
+            'Microsoft.VSTS.Common.Priority',
+            'Microsoft.VSTS.Scheduling.OriginalEstimate',
+            'Microsoft.VSTS.Scheduling.CompletedWork',
+            'Microsoft.VSTS.Scheduling.RemainingWork'
+          ],
+          undefined,
+          undefined,
+          undefined,
+          this.config.project
+        );
+        
+        // Transform to consistent format
+        const transformedWorkItems = detailedWorkItems.map((workItem: any) => ({
+          id: workItem.id,
+          title: workItem.fields['System.Title'],
+          workItemType: workItem.fields['System.WorkItemType'],
+          state: workItem.fields['System.State'],
+          assignedTo: workItem.fields['System.AssignedTo'] ? {
+            displayName: workItem.fields['System.AssignedTo'].displayName,
+            uniqueName: workItem.fields['System.AssignedTo'].uniqueName
+          } : null,
+          createdBy: workItem.fields['System.CreatedBy'] ? {
+            displayName: workItem.fields['System.CreatedBy'].displayName,
+            uniqueName: workItem.fields['System.CreatedBy'].uniqueName
+          } : null,
+          createdDate: workItem.fields['System.CreatedDate'],
+          changedDate: workItem.fields['System.ChangedDate'],
+          areaPath: workItem.fields['System.AreaPath'],
+          iterationPath: workItem.fields['System.IterationPath'],
+          priority: workItem.fields['Microsoft.VSTS.Common.Priority'],
+          originalEstimate: workItem.fields['Microsoft.VSTS.Scheduling.OriginalEstimate'],
+          completedWork: workItem.fields['Microsoft.VSTS.Scheduling.CompletedWork'],
+          remainingWork: workItem.fields['Microsoft.VSTS.Scheduling.RemainingWork']
+        }));
+        
+        return {
+          searchQuery: params.searchText,
+          totalResults: queryResult.workItems.length,
+          returnedResults: transformedWorkItems.length,
+          workItems: transformedWorkItems
+        };
+      }
+      
+      return {
+        searchQuery: params.searchText,
+        totalResults: 0,
+        returnedResults: 0,
+        workItems: []
+      };
     } catch (error) {
       console.error('Error searching work items:', error);
       throw error;
