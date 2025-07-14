@@ -1413,8 +1413,8 @@ Original error: ${errorMessage}`);
       enhancedLines.push(`🗑️ DELETED FILE - Original line numbers available for comments`);
       enhancedLines.push(`💬 Use original line numbers from deleted content for addPullRequestInlineComment`);
     } else {
-      enhancedLines.push(`📝 MODIFIED FILE - Only changed lines and context available for comments`);
-      enhancedLines.push(`💬 Look for [← line, right] markers for addPullRequestInlineComment`);
+      enhancedLines.push(`📝 MODIFIED FILE - Both original (left) and new (right) lines available for comments`);
+      enhancedLines.push(`💬 Look for [← line, left] and [← line, right] markers for addPullRequestInlineComment`);
     }
     enhancedLines.push(``);
 
@@ -1434,19 +1434,15 @@ Original error: ${errorMessage}`);
         enhancedLines.push(line);
         enhancedLines.push(`⬇️ Lines below can be commented on:`);
       } else if (line.startsWith('+') && !line.startsWith('+++')) {
-        // Added line - can be commented on
+        // Added line - can be commented on (right side)
         enhancedLines.push(`${line}  [← ${rightLineNumber}, right]`);
         rightLineNumber++;
       } else if (line.startsWith('-') && !line.startsWith('---')) {
-        // Removed line - can be commented on if it's a delete operation
-        if (changeType === VersionControlChangeType.Delete) {
-          enhancedLines.push(`${line}  [← ${leftLineNumber}, left]`);
-        } else {
-          enhancedLines.push(line);
-        }
+        // Removed line - can be commented on (left side)
+        enhancedLines.push(`${line}  [← ${leftLineNumber}, left]`);
         leftLineNumber++;
       } else if (line.startsWith(' ') && inHunk) {
-        // Context line - can often be commented on
+        // Context line - can be commented on (both sides, but we use right)
         enhancedLines.push(`${line}  [← ${rightLineNumber}, right]`);
         leftLineNumber++;
         rightLineNumber++;
@@ -1462,7 +1458,9 @@ Original error: ${errorMessage}`);
     } else if (changeType === VersionControlChangeType.Delete) {
       enhancedLines.push(`📝 **Usage:** Use original line numbers for commenting on deleted content`);
     } else {
-      enhancedLines.push(`📝 **Usage:** Look for [← line, right] markers above for valid line numbers`);
+      enhancedLines.push(`📝 **Usage:** Look for [← line, left] or [← line, right] markers above for valid line numbers`);
+      enhancedLines.push(`💡 **Left numbers:** Comment on original content (what was removed)`);
+      enhancedLines.push(`💡 **Right numbers:** Comment on new content (what was added or unchanged)`);
     }
     enhancedLines.push(`💬 **Format:** addPullRequestInlineComment(position: {line: X, offset: 1})`);
     
