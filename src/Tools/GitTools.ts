@@ -347,6 +347,19 @@ export class GitTools {
   public async getPullRequest(params: GetPullRequestParams): Promise<McpResponse> {
     try {
       const pullRequest = await this.gitService.getPullRequest(params);
+      
+      // Check if pullRequest is null or undefined
+      if (!pullRequest) {
+        return {
+          content: [
+            {
+              type: "text",
+              text: `## ❌ Pull Request Not Found\n\nPull request #${params.pullRequestId} was not found in repository '${params.repositoryId}'.\n\nPlease check:\n- The pull request ID is correct\n- The repository ID is correct\n- You have access permissions to the repository`
+            }
+          ]
+        };
+      }
+      
       const formattedText = this.formatPullRequestText(pullRequest);
       return formatMcpResponse(pullRequest, formattedText);
     } catch (error) {
@@ -582,9 +595,39 @@ TargetCommitId: ${pullRequest.lastMergeTargetCommit?.commitId || 'N/A'}
   public async addPullRequestInlineComment(params: AddPullRequestInlineCommentParams): Promise<McpResponse> {
     try {
       const result = await this.gitService.addPullRequestInlineComment(params);
-      return formatMcpResponse(result);
-    } catch (error) {
+      return formatMcpResponse(result, `✅ Inline comment added successfully to ${params.path} at line ${params.position.line}`);
+    } catch (error: any) {
       console.error('Error in addPullRequestInlineComment tool:', error);
+      
+      // Provide enhanced user-friendly error responses
+      if (error instanceof Error) {
+        // File not in PR changes
+        if (error.message.includes('not part of the changes')) {
+          return {
+            content: [
+              {
+                type: "text",
+                text: `## ❌ Cannot Add Inline Comment\n\n${error.message}\n\n💡 **Next Steps:**\n\n1. Use \`getPullRequestFileChanges\` to see which files are available\n2. Check the exact file paths in the PR changes\n3. Ensure you're using the correct file path format`
+              }
+            ]
+          };
+        }
+        
+        // Line number or position issues
+        if (error.message.includes('line number') || 
+            error.message.includes('getPullRequestFileChanges') ||
+            error.message.includes('line position')) {
+          return {
+            content: [
+              {
+                type: "text",
+                text: `## ❌ Invalid Line Position\n\n${error.message}\n\n### 🔍 **How to Find the Correct Line:**\n\n\`\`\`\ngetPullRequestFileChanges repositoryId="${params.repositoryId}" pullRequestId=${params.pullRequestId} path="${params.path}"\n\`\`\`\n\nThis will show you:\n- The exact code diff for this file\n- Line numbers that can be commented on\n- Added/modified/deleted line ranges\n- The actual content at each line`
+              }
+            ]
+          };
+        }
+      }
+      
       return formatErrorResponse(error);
     }
   }
@@ -1009,6 +1052,54 @@ TargetCommitId: ${pullRequest.lastMergeTargetCommit?.commitId || 'N/A'}
     }
 
     return result;
+  }
+
+  /**
+   * Get available lines for inline comments in a PR file
+   */
+  public async getPullRequestFileLines(params: GetPullRequestFileChangesParams): Promise<McpResponse> {
+    try {
+      const changes = await this.gitService.getPullRequestFileChanges(params);
+      
+      if (!changes || !changes.changes || changes.changes.length === 0) {
+        return {
+          content: [
+            {
+              type: "text",
+              text: `## 📝 No Changes Found\n\nNo changes found for file '${params.path}' in PR #${params.pullRequestId}.\n\n💡 **Tip:** Use \`getPullRequestFileChanges\` without the path parameter to see all changed files in this PR.`
+            }
+          ]
+        };
+      }
+
+      // Extract line information for commenting guidance
+      let linesInfo = `## 📍 Available Lines for Inline Comments\n\n**File:** \`${params.path}\`\n**PR:** #${params.pullRequestId}\n\n`;
+      
+      changes.changes.forEach((change: any, index: number) => {
+        if (change.item && change.item.gitObjectType === 'blob') {
+          linesInfo += `### Change ${index + 1}:\n`;
+          linesInfo += `- **Type:** ${change.changeType}\n`;
+          if (change.item.path) {
+            linesInfo += `- **Path:** \`${change.item.path}\`\n`;
+          }
+          linesInfo += `\n💡 **For inline comments:** Use line numbers from the actual diff content shown in \`getPullRequestFileChanges\`\n\n`;
+        }
+      });
+
+      linesInfo += `---\n\n**Next Steps:**\n1. Use \`getPullRequestFileChanges\` to see the actual code diff\n2. Look for line numbers in the diff (lines starting with + or - or context lines)\n3. Use those line numbers for \`addPullRequestInlineComment\``;
+
+      return {
+        content: [
+          {
+            type: "text",
+            text: linesInfo
+          }
+        ]
+      };
+    } catch (error) {
+      console.error('Error in getPullRequestFileLines tool:', error);
+      return formatErrorResponse(error);
+    }
   }
 }
 

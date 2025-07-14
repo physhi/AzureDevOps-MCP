@@ -819,7 +819,23 @@ export class GitService extends AzureDevOpsService {
       // Find the change entry for the specific file
       const changeEntry = changes.changeEntries?.find(entry => entry.item?.path === params.path);
       if (!changeEntry) {
-        throw new Error(`No changes found for file ${params.path}`);
+        // Provide a more helpful error message with available files
+        const availableFiles = changes.changeEntries?.map(entry => entry.item?.path).filter(Boolean) || [];
+        const fileList = availableFiles.length > 0 
+          ? `\n\nFiles changed in this PR:\n${availableFiles.map(file => `- ${file}`).join('\n')}`
+          : '\n\nNo files found in this PR.';
+        
+        throw new Error(`File '${params.path}' is not part of the changes in this pull request.${fileList}
+
+💡 **To find the correct files and line numbers:**
+
+Use 'getPullRequestFileChanges' with:
+- repositoryId: '${params.repositoryId}'
+- pullRequestId: ${params.pullRequestId}
+
+This will show you the actual file changes and line numbers available for commenting.
+
+Note: You can only add inline comments to files that have been modified in the PR.`);
       }
 
       // Create a thread with proper context for the comment
@@ -859,8 +875,36 @@ export class GitService extends AzureDevOpsService {
       );
       
       return result;
-    } catch (error) {
+    } catch (error: any) {
       console.error(`Error adding inline comment to pull request ${params.pullRequestId}:`, error);
+      
+      // Enhanced error handling for common scenarios
+      if (error.message || error.response?.data?.message) {
+        const errorMessage = error.message || error.response?.data?.message || '';
+        
+        // Check for line number related errors
+        if (errorMessage.includes('line') || 
+            errorMessage.includes('position') || 
+            errorMessage.includes('range') ||
+            errorMessage.includes('invalid') ||
+            error.status === 400 || 
+            error.statusCode === 400) {
+          
+          throw new Error(`Unable to add inline comment at line ${params.position.line} in file '${params.path}'. This could be because:
+
+• The line number doesn't exist in the current diff
+• The line is not part of the modified sections
+• The line position is outside the changed ranges
+
+💡 **Solution:** Use 'getPullRequestFileChanges' with repositoryId: '${params.repositoryId}' and pullRequestId: ${params.pullRequestId} to:
+- See the actual code diff for '${params.path}'
+- Find the correct line numbers that can be commented on
+- View the exact changes and line ranges available
+
+Original error: ${errorMessage}`);
+        }
+      }
+      
       throw error;
     }
   }
@@ -1156,6 +1200,27 @@ export class GitService extends AzureDevOpsService {
     } catch (error) {
       console.error(`Error getting all changes for pull request ${params.pullRequestId}:`, error);
       throw error;
+    }
+  }
+
+  /**
+   * Get list of changed files in a pull request (useful for knowing which files can have inline comments)
+   */
+  public async getPullRequestChangedFilesList(repositoryId: string, pullRequestId: number): Promise<string[]> {
+    try {
+      const gitApi = await this.getGitApi();
+      
+      const changes = await gitApi.getPullRequestIterationChanges(
+        repositoryId,
+        pullRequestId,
+        1, // First iteration
+        this.config.project
+      );
+
+      return changes.changeEntries?.map(entry => entry.item?.path).filter((path): path is string => Boolean(path)) || [];
+    } catch (error) {
+      console.error(`Error getting changed files list for PR ${pullRequestId}:`, error);
+      return [];
     }
   }
 
