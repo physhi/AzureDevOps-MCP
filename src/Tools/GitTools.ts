@@ -621,7 +621,7 @@ TargetCommitId: ${pullRequest.lastMergeTargetCommit?.commitId || 'N/A'}
             content: [
               {
                 type: "text",
-                text: `## ❌ Invalid Line Position\n\n${error.message}\n\n### 🔍 **How to Find the Correct Line:**\n\n\`\`\`\ngetPullRequestFileChanges repositoryId="${params.repositoryId}" pullRequestId=${params.pullRequestId} path="${params.path}"\n\`\`\`\n\nThis will show you:\n- The exact code diff for this file\n- Line numbers that can be commented on\n- Added/modified/deleted line ranges\n- The actual content at each line`
+                text: `## ❌ Invalid Line Position\n\n${error.message}\n\n### 🔍 **How to Find the Correct Line:**\n\n\`\`\`\ngetPullRequestFileChanges repositoryId="${params.repositoryId}" pullRequestId=${params.pullRequestId} path="${params.path}"\n\`\`\`\n\nThis will show you:\n\n**📁 For NEWLY ADDED files:**\n- All lines are available for comments (1, 2, 3, ... N)\n- Diff shows: \`+1: line content\`, \`+2: line content\`, etc.\n- You can comment on ANY line number from 1 to the total lines\n\n**📝 For MODIFIED files:**\n- Only changed line ranges can be commented on\n- Look for lines with \`+\` (added) or context lines\n- Line numbers correspond to the new version of the file\n\n**🗑️ For DELETED files:**\n- Only the deleted lines can be commented on\n- Diff shows: \`-1: deleted content\`, \`-2: deleted content\`, etc.`
               }
             ]
           };
@@ -1078,11 +1078,30 @@ TargetCommitId: ${pullRequest.lastMergeTargetCommit?.commitId || 'N/A'}
       changes.changes.forEach((change: any, index: number) => {
         if (change.item && change.item.gitObjectType === 'blob') {
           linesInfo += `### Change ${index + 1}:\n`;
-          linesInfo += `- **Type:** ${change.changeType}\n`;
+          linesInfo += `- **Type:** ${change.changeType === 1 ? 'ADDED (New file)' : change.changeType === 2 ? 'MODIFIED' : change.changeType === 3 ? 'DELETED' : 'Unknown'}\n`;
           if (change.item.path) {
             linesInfo += `- **Path:** \`${change.item.path}\`\n`;
           }
-          linesInfo += `\n💡 **For inline comments:** Use line numbers from the actual diff content shown in \`getPullRequestFileChanges\`\n\n`;
+          
+          // Provide specific guidance based on change type
+          if (change.changeType === 1) {
+            // Newly added file
+            linesInfo += `\n💡 **For NEW files:** All lines are available for commenting!\n`;
+            linesInfo += `- Line numbers: 1, 2, 3, ... up to the total lines in the file\n`;
+            linesInfo += `- Example: Use line 1 for the first line, line 2 for the second line, etc.\n`;
+            linesInfo += `- The diff will show: \`+1: content\`, \`+2: content\`, etc.\n`;
+          } else if (change.changeType === 2) {
+            // Modified file
+            linesInfo += `\n💡 **For MODIFIED files:** Only changed lines can be commented on\n`;
+            linesInfo += `- Look for lines with \`+\` (added) or context lines in the diff\n`;
+            linesInfo += `- Line numbers correspond to the new version of the file\n`;
+          } else if (change.changeType === 3) {
+            // Deleted file
+            linesInfo += `\n💡 **For DELETED files:** Only deleted lines can be commented on\n`;
+            linesInfo += `- The diff will show: \`-1: content\`, \`-2: content\`, etc.\n`;
+          }
+          
+          linesInfo += `\n`;
         }
       });
 

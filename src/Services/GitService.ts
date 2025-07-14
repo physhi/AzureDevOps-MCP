@@ -820,7 +820,7 @@ export class GitService extends AzureDevOpsService {
       const changeEntry = changes.changeEntries?.find(entry => entry.item?.path === params.path);
       if (!changeEntry) {
         // Provide a more helpful error message with available files
-        const availableFiles = changes.changeEntries?.map(entry => entry.item?.path).filter(Boolean) || [];
+        const availableFiles = changes.changeEntries?.map(entry => entry.item?.path).filter((path): path is string => Boolean(path)) || [];
         const fileList = availableFiles.length > 0 
           ? `\n\nFiles changed in this PR:\n${availableFiles.map(file => `- ${file}`).join('\n')}`
           : '\n\nNo files found in this PR.';
@@ -838,6 +838,50 @@ This will show you the actual file changes and line numbers available for commen
 Note: You can only add inline comments to files that have been modified in the PR.`);
       }
 
+      // Determine thread context based on change type
+      let threadContext: any = {
+        filePath: params.path,
+      };
+
+      // Handle different change types according to Azure DevOps API documentation
+      if (changeEntry.changeType === VersionControlChangeType.Add) {
+        // ADDED file: leftFile positions should be null, rightFile positions are for the new file
+        threadContext.leftFileStart = null;
+        threadContext.leftFileEnd = null;
+        threadContext.rightFileStart = {
+          line: params.position.line,
+          offset: params.position.offset
+        };
+        threadContext.rightFileEnd = {
+          line: params.position.line,
+          offset: params.position.offset + 1
+        };
+      } else if (changeEntry.changeType === VersionControlChangeType.Delete) {
+        // DELETED file: rightFile positions should be null, leftFile positions are for the deleted content
+        threadContext.leftFileStart = {
+          line: params.position.line,
+          offset: params.position.offset
+        };
+        threadContext.leftFileEnd = {
+          line: params.position.line,
+          offset: params.position.offset + 1
+        };
+        threadContext.rightFileStart = null;
+        threadContext.rightFileEnd = null;
+      } else {
+        // MODIFIED file: both left and right positions can be set (traditional approach)
+        threadContext.leftFileStart = null; // Often null for simple line comments
+        threadContext.leftFileEnd = null;
+        threadContext.rightFileStart = {
+          line: params.position.line,
+          offset: params.position.offset
+        };
+        threadContext.rightFileEnd = {
+          line: params.position.line,
+          offset: params.position.offset + 1
+        };
+      }
+
       // Create a thread with proper context for the comment
       const thread = {
         comments: [{
@@ -846,17 +890,7 @@ Note: You can only add inline comments to files that have been modified in the P
           commentType: 1 // 1 = text
         }],
         status: 1, // 1 = active
-        threadContext: {
-          filePath: params.path,
-          rightFileStart: {
-            line: params.position.line,
-            offset: params.position.offset
-          },
-          rightFileEnd: {
-            line: params.position.line,
-            offset: params.position.offset + 1 // End position should be different from start
-          }
-        },
+        threadContext,
         pullRequestThreadContext: {
           changeTrackingId: changeEntry.changeTrackingId, // Use the change tracking ID from the diff
           iterationContext: {
@@ -892,14 +926,20 @@ Note: You can only add inline comments to files that have been modified in the P
           
           throw new Error(`Unable to add inline comment at line ${params.position.line} in file '${params.path}'. This could be because:
 
-• The line number doesn't exist in the current diff
-• The line is not part of the modified sections
-• The line position is outside the changed ranges
+• The line number doesn't exist in the file
+• The line position is outside the valid range
+• For newly added files: line numbers start from 1 and go up to the total lines in the new file
+• For modified files: only changed line ranges can be commented on
+• For deleted files: only the original line numbers from the deleted content can be commented on
 
 💡 **Solution:** Use 'getPullRequestFileChanges' with repositoryId: '${params.repositoryId}' and pullRequestId: ${params.pullRequestId} to:
 - See the actual code diff for '${params.path}'
-- Find the correct line numbers that can be commented on
-- View the exact changes and line ranges available
+- For NEW files (Add): All lines (1 to N) are available for comments, shown as +1, +2, +3...
+- For MODIFIED files (Edit): Only changed line ranges can be commented on
+- For DELETED files (Delete): Only deleted line numbers can be commented on, shown as -1, -2, -3...
+- View the exact changes and valid line numbers
+
+**Based on Azure DevOps REST API research:** The thread context is now properly configured for each change type.
 
 Original error: ${errorMessage}`);
         }
