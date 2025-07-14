@@ -1056,6 +1056,7 @@ Original error: ${errorMessage}`);
                 ]);
                 
                 diffContent = this.calculateUnifiedDiff(originalContent, currentContent, change.item.path);
+                diffContent = this.addInlineCommentGuidance(diffContent, change.changeType);
               } catch (error) {
                 console.error(`Error getting diff for ${change.item.path}:`, error);
                 diffContent = '[Diff not available]';
@@ -1139,6 +1140,7 @@ Original error: ${errorMessage}`);
               ]);
               
               diffContent = this.calculateUnifiedDiff(originalContent, currentContent, change.item.path);
+              diffContent = this.addInlineCommentGuidance(diffContent, change.changeType);
             } catch (error) {
               console.error(`Error getting diff for ${change.item.path}:`, error);
               diffContent = '[Diff not available]';
@@ -1271,7 +1273,12 @@ Original error: ${errorMessage}`);
     const lines = content.split('\n');
     
     if (lines.length === 0) {
-      return `--- /dev/null\n+++ b${filePath}\n@@ -0,0 +1,0 @@\n(Empty file)`;
+      return `--- /dev/null
++++ b${filePath}
+@@ -0,0 +1,0 @@
+📄 NEW FILE (Empty)
+
+💬 INLINE COMMENT LINES: None (empty file)`;
     }
     
     // For large files, show a summary instead of all content
@@ -1281,30 +1288,46 @@ Original error: ${errorMessage}`);
     let diffLines: string[] = [];
     diffLines.push(`--- /dev/null`);
     diffLines.push(`+++ b${filePath}`);
+    diffLines.push(`@@ -0,0 +1,${lines.length} @@`);
+    diffLines.push(`📄 NEW FILE (${lines.length} lines)`);
+    diffLines.push(`💬 INLINE COMMENT LINES: 1 to ${lines.length} (any line can be commented)`);
+    diffLines.push(``);
     
     if (isLargeFile) {
-      // Show first 50 lines, then a summary, then last 10 lines
+      // Show first 50 lines with clear line numbers
       const firstLines = lines.slice(0, 50);
       const lastLines = lines.slice(-10);
       const hiddenLineCount = lines.length - firstLines.length - lastLines.length;
       
-      diffLines.push(`@@ -0,0 +1,${lines.length} @@`);
-      
-      // Add first 50 lines
-      firstLines.forEach(line => diffLines.push(`+${line}`));
+      // Add first 50 lines with line numbers
+      firstLines.forEach((line, index) => {
+        const lineNumber = index + 1;
+        diffLines.push(`+${lineNumber.toString().padStart(4, ' ')}: ${line}  [← ${lineNumber}, right]`);
+      });
       
       // Add summary of hidden content
       if (hiddenLineCount > 0) {
-        diffLines.push(`+... (${hiddenLineCount} more lines) ...`);
+        const startHidden = firstLines.length + 1;
+        const endHidden = lines.length - lastLines.length;
+        diffLines.push(`+... (${hiddenLineCount} more lines: ${startHidden}-${endHidden}, all commentable) ...`);
       }
       
-      // Add last 10 lines
-      lastLines.forEach(line => diffLines.push(`+${line}`));
+      // Add last 10 lines with line numbers
+      lastLines.forEach((line, index) => {
+        const lineNumber = lines.length - lastLines.length + index + 1;
+        diffLines.push(`+${lineNumber.toString().padStart(4, ' ')}: ${line}  [← ${lineNumber}, right]`);
+      });
     } else {
-      // Show all content for smaller files
-      diffLines.push(`@@ -0,0 +1,${lines.length} @@`);
-      lines.forEach(line => diffLines.push(`+${line}`));
+      // Show all content for smaller files with line numbers
+      lines.forEach((line, index) => {
+        const lineNumber = index + 1;
+        diffLines.push(`+${lineNumber.toString().padStart(4, ' ')}: ${line}  [← ${lineNumber}, right]`);
+      });
     }
+    
+    diffLines.push(``);
+    diffLines.push(`📝 **Usage:** addPullRequestInlineComment with position.line = 1 to ${lines.length}`);
+    diffLines.push(`💬 **Tip:** All lines in new files can be commented on!`);
     
     return diffLines.join('\n');
   }
@@ -1316,9 +1339,14 @@ Original error: ${errorMessage}`);
     const lines = content.split('\n');
     
     if (lines.length === 0) {
-      return `--- a${filePath}\n+++ /dev/null\n@@ -1,0 +0,0 @@\n(Empty file was deleted)`;
+      return `--- a${filePath}
++++ /dev/null
+@@ -1,0 +0,0 @@
+🗑️ DELETED FILE (Empty)
+
+💬 INLINE COMMENT LINES: None (empty file was deleted)`;
     }
-    
+
     // For large files, show a summary instead of all content
     const maxLinesToShow = 100;
     const isLargeFile = lines.length > maxLinesToShow;
@@ -1326,31 +1354,118 @@ Original error: ${errorMessage}`);
     let diffLines: string[] = [];
     diffLines.push(`--- a${filePath}`);
     diffLines.push(`+++ /dev/null`);
+    diffLines.push(`@@ -1,${lines.length} +0,0 @@`);
+    diffLines.push(`🗑️ DELETED FILE (${lines.length} lines removed)`);
+    diffLines.push(`💬 INLINE COMMENT LINES: 1 to ${lines.length} (comment on deleted content)`);
+    diffLines.push(``);
     
     if (isLargeFile) {
-      // Show first 50 lines, then a summary, then last 10 lines
+      // Show first 50 lines with clear line numbers
       const firstLines = lines.slice(0, 50);
       const lastLines = lines.slice(-10);
       const hiddenLineCount = lines.length - firstLines.length - lastLines.length;
       
-      diffLines.push(`@@ -1,${lines.length} +0,0 @@`);
-      
-      // Add first 50 lines
-      firstLines.forEach(line => diffLines.push(`-${line}`));
+      // Add first 50 lines with line numbers
+      firstLines.forEach((line, index) => {
+        const lineNumber = index + 1;
+        diffLines.push(`-${lineNumber.toString().padStart(4, ' ')}: ${line}  [← ${lineNumber}, left]`);
+      });
       
       // Add summary of hidden content
       if (hiddenLineCount > 0) {
-        diffLines.push(`-... (${hiddenLineCount} more lines) ...`);
+        const startHidden = firstLines.length + 1;
+        const endHidden = lines.length - lastLines.length;
+        diffLines.push(`-... (${hiddenLineCount} more deleted lines: ${startHidden}-${endHidden}, all commentable) ...`);
       }
       
-      // Add last 10 lines
-      lastLines.forEach(line => diffLines.push(`-${line}`));
+      // Add last 10 lines with line numbers
+      lastLines.forEach((line, index) => {
+        const lineNumber = lines.length - lastLines.length + index + 1;
+        diffLines.push(`-${lineNumber.toString().padStart(4, ' ')}: ${line}  [← ${lineNumber}, left]`);
+      });
     } else {
-      // Show all content for smaller files
-      diffLines.push(`@@ -1,${lines.length} +0,0 @@`);
-      lines.forEach(line => diffLines.push(`-${line}`));
+      // Show all content for smaller files with line numbers
+      lines.forEach((line, index) => {
+        const lineNumber = index + 1;
+        diffLines.push(`-${lineNumber.toString().padStart(4, ' ')}: ${line}  [← ${lineNumber}, left]`);
+      });
     }
     
+    diffLines.push(``);
+    diffLines.push(`📝 **Usage:** addPullRequestInlineComment with position.line = 1 to ${lines.length} (original line numbers)`);
+    diffLines.push(`💬 **Tip:** Comment on the original content before it was deleted!`);
+    
     return diffLines.join('\n');
+  }
+
+  /**
+   * Add inline comment guidance to diff content
+   */
+  private addInlineCommentGuidance(diffContent: string, changeType: any): string {
+    const lines = diffContent.split('\n');
+    const enhancedLines: string[] = [];
+    
+    // Add header with comment guidance
+    if (changeType === VersionControlChangeType.Add) {
+      enhancedLines.push(`📄 NEW FILE - All lines available for inline comments`);
+      enhancedLines.push(`💬 Use line numbers 1, 2, 3... etc. for addPullRequestInlineComment`);
+    } else if (changeType === VersionControlChangeType.Delete) {
+      enhancedLines.push(`🗑️ DELETED FILE - Original line numbers available for comments`);
+      enhancedLines.push(`💬 Use original line numbers from deleted content for addPullRequestInlineComment`);
+    } else {
+      enhancedLines.push(`📝 MODIFIED FILE - Only changed lines and context available for comments`);
+      enhancedLines.push(`💬 Look for [← line, right] markers for addPullRequestInlineComment`);
+    }
+    enhancedLines.push(``);
+
+    let rightLineNumber = 1;
+    let leftLineNumber = 1;
+    let inHunk = false;
+    
+    for (const line of lines) {
+      if (line.startsWith('@@')) {
+        // Parse hunk header to get line numbers
+        const hunkMatch = line.match(/@@ -(\d+),?\d* \+(\d+),?\d* @@/);
+        if (hunkMatch) {
+          leftLineNumber = parseInt(hunkMatch[1]);
+          rightLineNumber = parseInt(hunkMatch[2]);
+          inHunk = true;
+        }
+        enhancedLines.push(line);
+        enhancedLines.push(`⬇️ Lines below can be commented on:`);
+      } else if (line.startsWith('+') && !line.startsWith('+++')) {
+        // Added line - can be commented on
+        enhancedLines.push(`${line}  [← ${rightLineNumber}, right]`);
+        rightLineNumber++;
+      } else if (line.startsWith('-') && !line.startsWith('---')) {
+        // Removed line - can be commented on if it's a delete operation
+        if (changeType === VersionControlChangeType.Delete) {
+          enhancedLines.push(`${line}  [← ${leftLineNumber}, left]`);
+        } else {
+          enhancedLines.push(line);
+        }
+        leftLineNumber++;
+      } else if (line.startsWith(' ') && inHunk) {
+        // Context line - can often be commented on
+        enhancedLines.push(`${line}  [← ${rightLineNumber}, right]`);
+        leftLineNumber++;
+        rightLineNumber++;
+      } else {
+        enhancedLines.push(line);
+      }
+    }
+    
+    // Add footer guidance
+    enhancedLines.push(``);
+    if (changeType === VersionControlChangeType.Add) {
+      enhancedLines.push(`📝 **Usage:** Any line number from 1 to total lines can be used for inline comments`);
+    } else if (changeType === VersionControlChangeType.Delete) {
+      enhancedLines.push(`📝 **Usage:** Use original line numbers for commenting on deleted content`);
+    } else {
+      enhancedLines.push(`📝 **Usage:** Look for [← line, right] markers above for valid line numbers`);
+    }
+    enhancedLines.push(`💬 **Format:** addPullRequestInlineComment(position: {line: X, offset: 1})`);
+    
+    return enhancedLines.join('\n');
   }
 }
