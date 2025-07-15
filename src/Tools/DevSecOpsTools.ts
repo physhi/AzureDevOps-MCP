@@ -28,7 +28,7 @@ export class DevSecOpsTools {
   async runSecurityScan(params: RunSecurityScanParams): Promise<McpResponse> {
     try {
       const result = await this.service.runSecurityScan(params);
-      return formatMcpResponse(result, `Security scan initiated for repository ${params.repositoryId}`);
+      return formatMcpResponse(result, `Security scan initiated for repository ${params.repository}`);
     } catch (error: unknown) {
       console.error('Error running security scan:', error);
       return formatErrorResponse(error);

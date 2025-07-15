@@ -25,7 +25,7 @@ export class AIAssistedDevelopmentService extends AzureDevOpsService {
     // For now, we're returning a mock response
     return {
       pullRequestId: params.pullRequestId,
-      repositoryId: params.repositoryId,
+      repository: params.repository,
       suggestions: [
         { file: "src/main.ts", line: 45, issue: "Potential null reference", recommendation: "Add null check before accessing properties" },
         { file: "src/utils/helper.ts", line: 23, issue: "Inefficient loop", recommendation: "Consider using map() instead of forEach()" }
@@ -36,7 +36,7 @@ export class AIAssistedDevelopmentService extends AzureDevOpsService {
 
   async suggestCodeOptimization(params: SuggestCodeOptimizationParams) {
     return {
-      repositoryId: params.repositoryId,
+      repository: params.repository,
       filePath: params.filePath,
       lineRange: `${params.lineStart || 1}-${params.lineEnd || 100}`,
       optimizationType: params.optimizationType || "all",
@@ -49,7 +49,7 @@ export class AIAssistedDevelopmentService extends AzureDevOpsService {
 
   async identifyCodeSmells(params: IdentifyCodeSmellsParams) {
     return {
-      repositoryId: params.repositoryId,
+      repository: params.repository,
       branch: params.branch || "main",
       codeSmells: [
         { file: params.filePath || "src/components/App.tsx", line: 120, smell: "Long method", severity: "high", recommendation: "Extract logic into smaller methods" },
@@ -62,7 +62,7 @@ export class AIAssistedDevelopmentService extends AzureDevOpsService {
 
   async getPredictiveBugAnalysis(params: GetPredictiveBugAnalysisParams) {
     return {
-      repositoryId: params.repositoryId,
+      repository: params.repository,
       pullRequestId: params.pullRequestId,
       branch: params.branch || "main",
       potentialIssues: [

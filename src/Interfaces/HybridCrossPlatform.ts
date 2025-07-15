@@ -18,8 +18,8 @@ export interface IntegrateGitLabPipelinesParams {
 }
 
 export interface ManageCrossRepoWorkflowsParams {
-  primaryRepositoryId: string;
-  dependentRepositoryIds: string[];
+  primaryRepository: string;
+  dependentRepositories: string[];
   workflowType?: 'build' | 'release' | 'test' | 'custom';
   workflowDefinition?: Record<string, any>;
 }

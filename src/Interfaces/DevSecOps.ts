@@ -1,5 +1,5 @@
 export interface RunSecurityScanParams {
-  repositoryId: string;
+  repository: string;
   branch?: string;
   scanType?: 'static' | 'dynamic' | 'container' | 'dependency' | 'all';
 }

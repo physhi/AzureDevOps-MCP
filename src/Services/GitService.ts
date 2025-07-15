@@ -4,6 +4,7 @@ import { GitApi } from 'azure-devops-node-api/GitApi';
 import { VersionControlChangeType } from 'azure-devops-node-api/interfaces/GitInterfaces';
 import { AzureDevOpsConfig } from '../Interfaces/AzureDevOps';
 import { AzureDevOpsService } from './AzureDevOpsService';
+import { isRepositoryId, isRepositoryName } from '../utils/repositoryResolver';
 import {
   ListRepositoriesParams,
   GetRepositoryParams,
@@ -30,6 +31,9 @@ import {
 } from '../Interfaces/CodeAndRepositories';
 
 export class GitService extends AzureDevOpsService {
+  // Cache for repository name-to-ID mappings to improve performance
+  private repositoryCache: Map<string, string> = new Map();
+
   constructor(config: AzureDevOpsConfig) {
     super(config);
   }
@@ -39,6 +43,59 @@ export class GitService extends AzureDevOpsService {
    */
   private async getGitApi(): Promise<GitApi> {
     return await this.connection.getGitApi();
+  }
+
+  /**
+   * Resolve repository identifier (name or ID) to repository ID
+   * Supports hybrid approach: if input is already a GUID, returns it; if name, resolves to ID
+   * @param repository - Repository name or ID
+   * @param projectId - Optional project ID for scoping (defaults to config project)
+   * @returns Repository ID (GUID)
+   */
+  public async resolveRepositoryId(repository: string, projectId?: string): Promise<string> {
+    // If it's already a GUID, return as-is
+    if (isRepositoryId(repository)) {
+      return repository;
+    }
+
+    // Check cache first for performance
+    const cacheKey = `${projectId || this.config.project}:${repository}`;
+    if (this.repositoryCache.has(cacheKey)) {
+      return this.repositoryCache.get(cacheKey)!;
+    }
+
+    try {
+      // Resolve repository name to ID by listing repositories
+      const repositories = await this.listRepositories({ 
+        projectId: projectId || this.config.project 
+      });
+
+      // Find repository by name (case-insensitive)
+      const matchedRepo = repositories.find((repo: any) => 
+        repo.name && repo.name.toLowerCase() === repository.toLowerCase()
+      );
+
+      if (!matchedRepo) {
+        throw new Error(
+          `Repository '${repository}' not found in project '${projectId || this.config.project}'. ` +
+          `Available repositories: ${repositories.map((r: any) => r.name).join(', ')}`
+        );
+      }
+
+      // Cache the result
+      this.repositoryCache.set(cacheKey, matchedRepo.id);
+      
+      return matchedRepo.id;
+    } catch (error) {
+      if (error instanceof Error && error.message.includes('not found')) {
+        throw error; // Re-throw our custom error
+      }
+      console.error(`Error resolving repository '${repository}':`, error);
+      throw new Error(
+        `Failed to resolve repository '${repository}'. ` +
+        `Please verify the repository name exists and you have access to it.`
+      );
+    }
   }
 
   /**
@@ -68,14 +125,17 @@ export class GitService extends AzureDevOpsService {
     try {
       const gitApi = await this.getGitApi();
       
+      // Resolve repository name/ID to actual repository ID
+      const repositoryId = await this.resolveRepositoryId(params.repository, params.projectId);
+      
       const repository = await gitApi.getRepository(
-        params.repositoryId,
+        repositoryId,
         params.projectId || this.config.project
       );
       
       return repository;
     } catch (error) {
-      console.error(`Error getting repository ${params.repositoryId}:`, error);
+      console.error(`Error getting repository ${params.repository}:`, error);
       throw error;
     }
   }
@@ -108,8 +168,11 @@ export class GitService extends AzureDevOpsService {
     try {
       const gitApi = await this.getGitApi();
       
+      // Resolve repository name/ID to actual repository ID
+      const repositoryId = await this.resolveRepositoryId(params.repository);
+      
       const branches = await gitApi.getBranches(
-        params.repositoryId,
+        repositoryId,
         params.filter
       );
       
@@ -119,7 +182,7 @@ export class GitService extends AzureDevOpsService {
       
       return branches;
     } catch (error) {
-      console.error(`Error listing branches for repository ${params.repositoryId}:`, error);
+      console.error(`Error listing branches for repository ${params.repository}:`, error);
       throw error;
     }
   }
@@ -132,10 +195,13 @@ export class GitService extends AzureDevOpsService {
     try {
       const gitApi = await this.getGitApi();
       
+      // Resolve repository name/ID to actual repository ID if provided
+      const repositoryId = params.repository ? await this.resolveRepositoryId(params.repository) : "";
+      
       // This is a simplified implementation using item search
       // For more comprehensive code search, you'd use the Search API
       const items = await gitApi.getItems(
-        params.repositoryId || "",
+        repositoryId || "",
         undefined,
         undefined,
         undefined,
@@ -169,7 +235,7 @@ export class GitService extends AzureDevOpsService {
       
       return filteredItems;
     } catch (error) {
-      console.error(`Error searching code in repository ${params.repositoryId}:`, error);
+      console.error(`Error searching code in repository ${params.repository}:`, error);
       throw error;
     }
   }
@@ -181,8 +247,11 @@ export class GitService extends AzureDevOpsService {
     try {
       const gitApi = await this.getGitApi();
       
+      // Resolve repository name/ID to actual repository ID
+      const repositoryId = await this.resolveRepositoryId(params.repository);
+      
       const items = await gitApi.getItems(
-        params.repositoryId,
+        repositoryId,
         undefined,
         params.path,
         undefined,
@@ -196,7 +265,7 @@ export class GitService extends AzureDevOpsService {
       
       return items;
     } catch (error) {
-      console.error(`Error browsing repository ${params.repositoryId}:`, error);
+      console.error(`Error browsing repository ${params.repository}:`, error);
       throw error;
     }
   }
@@ -208,9 +277,12 @@ export class GitService extends AzureDevOpsService {
     try {
       const gitApi = await this.getGitApi();
       
+      // Resolve repository name/ID to actual repository ID
+      const repositoryId = await this.resolveRepositoryId(params.repository);
+      
       // Get the file content as a stream
       const content = await gitApi.getItemContent(
-        params.repositoryId,
+        repositoryId,
         params.path,
         undefined,
         undefined
@@ -549,8 +621,11 @@ export class GitService extends AzureDevOpsService {
       };
 
       // Get commits with proper search criteria for richer data
+      // Resolve repository name/ID to actual repository ID
+      const repositoryId = await this.resolveRepositoryId(params.repository);
+      
       const commits = await gitApi.getCommits(
-        params.repositoryId,
+        repositoryId,
         searchCriteria,
         params.projectId || this.config.project
       );
@@ -558,7 +633,7 @@ export class GitService extends AzureDevOpsService {
       // The commits are already filtered and paginated by the API
       return commits || [];
     } catch (error) {
-      console.error(`Error getting commit history for repository ${params.repositoryId}:`, error);
+      console.error(`Error getting commit history for repository ${params.repository}:`, error);
       throw error;
     }
   }
@@ -570,9 +645,12 @@ export class GitService extends AzureDevOpsService {
     try {
       const gitApi = await this.getGitApi();
       
+      // Resolve repository name/ID to actual repository ID
+      const repositoryId = await this.resolveRepositoryId(params.repository);
+      
       // Get commits without search criteria
       const commits = await gitApi.getCommits(
-        params.repositoryId,
+        repositoryId,
         {} // Empty search criteria
       );
       
@@ -586,7 +664,7 @@ export class GitService extends AzureDevOpsService {
       
       return filteredCommits;
     } catch (error) {
-      console.error(`Error getting commits for repository ${params.repositoryId}:`, error);
+      console.error(`Error getting commits for repository ${params.repository}:`, error);
       throw error;
     }
   }
@@ -598,9 +676,12 @@ export class GitService extends AzureDevOpsService {
     try {
       const gitApi = await this.getGitApi();
       
+      // Resolve repository name/ID to actual repository ID
+      const repositoryId = await this.resolveRepositoryId(params.repository);
+      
       // Create search criteria with proper types
       const searchCriteria: any = {
-        repositoryId: params.repositoryId,
+        repositoryId: repositoryId,
         creatorId: params.creatorId,
         reviewerId: params.reviewerId,
         sourceRefName: params.sourceRefName,
@@ -617,13 +698,20 @@ export class GitService extends AzureDevOpsService {
       }
       
       const pullRequests = await gitApi.getPullRequests(
-        params.repositoryId,
-        searchCriteria
+        repositoryId,
+        searchCriteria,
+        this.config.project,
+        undefined, // maxCommentLength
+        params.skip || 0,
+        params.top || 50
       );
+
+      // Note: Work item integration could be added here in the future
+      // For now, we return the basic pull request data with rich reviewer information
       
       return pullRequests;
     } catch (error) {
-      console.error(`Error getting pull requests for repository ${params.repositoryId}:`, error);
+      console.error(`Error getting pull requests for repository ${params.repository}:`, error);
       throw error;
     }
   }
@@ -643,9 +731,12 @@ export class GitService extends AzureDevOpsService {
         reviewers: params.reviewers ? params.reviewers.map(id => ({ id })) : undefined
       };
       
+      // Resolve repository name/ID to actual repository ID
+      const repositoryId = await this.resolveRepositoryId(params.repository);
+      
       const createdPullRequest = await gitApi.createPullRequest(
         pullRequest,
-        params.repositoryId,
+        repositoryId,
         this.config.project
       );
       
@@ -663,8 +754,11 @@ export class GitService extends AzureDevOpsService {
     try {
       const gitApi = await this.getGitApi();
       
+      // Resolve repository name/ID to actual repository ID
+      const repositoryId = await this.resolveRepositoryId(params.repository);
+      
       const pullRequest = await gitApi.getPullRequest(
-        params.repositoryId,
+        repositoryId,
         params.pullRequestId,
         this.config.project
       );
@@ -683,9 +777,12 @@ export class GitService extends AzureDevOpsService {
     try {
       const gitApi = await this.getGitApi();
       
+      // Resolve repository name/ID to actual repository ID
+      const repositoryId = await this.resolveRepositoryId(params.repository);
+      
       if (params.threadId) {
         const thread = await gitApi.getPullRequestThread(
-          params.repositoryId,
+          repositoryId,
           params.pullRequestId,
           params.threadId,
           this.config.project
@@ -694,7 +791,7 @@ export class GitService extends AzureDevOpsService {
         return thread;
       } else {
         const threads = await gitApi.getThreads(
-          params.repositoryId,
+          repositoryId,
           params.pullRequestId,
           this.config.project
         );
@@ -713,6 +810,9 @@ export class GitService extends AzureDevOpsService {
   public async approvePullRequest(params: ApprovePullRequestParams): Promise<any> {
     try {
       const gitApi = await this.getGitApi();
+
+      // Resolve repository name/ID to actual repository ID
+      const repositoryId = await this.resolveRepositoryId(params.repository);
       
       const vote = {
         vote: 10
@@ -720,7 +820,7 @@ export class GitService extends AzureDevOpsService {
       
       const result = await gitApi.createPullRequestReviewer(
         vote,
-        params.repositoryId,
+        repositoryId,
         params.pullRequestId,
         "me",
         this.config.project
@@ -745,6 +845,8 @@ export class GitService extends AzureDevOpsService {
       if (params.mergeStrategy === 'rebase') mergeStrategy = 2;
       else if (params.mergeStrategy === 'rebaseMerge') mergeStrategy = 3;
       else if (params.mergeStrategy === 'squash') mergeStrategy = 4;
+
+      let repositoryId: string = await this.resolveRepositoryId(params.repository);
       
       const result = await gitApi.updatePullRequest(
         { 
@@ -753,7 +855,7 @@ export class GitService extends AzureDevOpsService {
             mergeStrategy: mergeStrategy
           }
         },
-        params.repositoryId,
+        repositoryId,
         params.pullRequestId,
         this.config.project
       );
@@ -780,6 +882,8 @@ export class GitService extends AzureDevOpsService {
       if (params.mergeStrategy === 'rebase') mergeStrategy = 2;
       else if (params.mergeStrategy === 'rebaseMerge') mergeStrategy = 3;
       else if (params.mergeStrategy === 'squash') mergeStrategy = 4;
+
+      let repositoryId: string = await this.resolveRepositoryId(params.repository);
       
       // Update the pull request to completed status
       const updatedPullRequest = await gitApi.updatePullRequest(
@@ -790,7 +894,7 @@ export class GitService extends AzureDevOpsService {
             deleteSourceBranch: params.deleteSourceBranch
           }
         },
-        params.repositoryId,
+        repositoryId,
         params.pullRequestId
       );
       
@@ -807,10 +911,12 @@ export class GitService extends AzureDevOpsService {
   public async addPullRequestInlineComment(params: AddPullRequestInlineCommentParams): Promise<any> {
     try {
       const gitApi = await this.getGitApi();
+
+      let repositoryId: string = await this.resolveRepositoryId(params.repository);
       
       // First get the changes for the file to get the change tracking ID
       const changes = await gitApi.getPullRequestIterationChanges(
-        params.repositoryId,
+        repositoryId,
         params.pullRequestId,
         1, // First iteration
         this.config.project
@@ -830,7 +936,7 @@ export class GitService extends AzureDevOpsService {
 💡 **To find the correct files and line numbers:**
 
 Use 'getPullRequestFileChanges' with:
-- repositoryId: '${params.repositoryId}'
+- repository: '${params.repository}'
 - pullRequestId: ${params.pullRequestId}
 
 This will show you the actual file changes and line numbers available for commenting.
@@ -903,7 +1009,7 @@ Note: You can only add inline comments to files that have been modified in the P
       // Create the thread (which includes the comment)
       const result = await gitApi.createThread(
         thread,
-        params.repositoryId,
+        repositoryId,
         params.pullRequestId,
         this.config.project
       );
@@ -932,7 +1038,7 @@ Note: You can only add inline comments to files that have been modified in the P
 • For modified files: only changed line ranges can be commented on
 • For deleted files: only the original line numbers from the deleted content can be commented on
 
-💡 **Solution:** Use 'getPullRequestFileChanges' with repositoryId: '${params.repositoryId}' and pullRequestId: ${params.pullRequestId} to:
+💡 **Solution:** Use 'getPullRequestFileChanges' with repository: '${params.repository}' and pullRequestId: ${params.pullRequestId} to:
 - See the actual code diff for '${params.path}'
 - For NEW files (Add): All lines (1 to N) are available for comments, shown as +1, +2, +3...
 - For MODIFIED files (Edit): Only changed line ranges can be commented on
@@ -969,11 +1075,14 @@ Original error: ${errorMessage}`);
           // No position info for file-level comments
         }
       };
+
+      // Resolve repository name/ID to actual repository ID
+      const repositoryId = await this.resolveRepositoryId(params.repository);
       
       // Create the thread (which includes the comment)
       const result = await gitApi.createThread(
         thread,
-        params.repositoryId,
+        repositoryId,
         params.pullRequestId,
         this.config.project
       );
@@ -1002,11 +1111,14 @@ Original error: ${errorMessage}`);
         status: 1 // 1 = active
         // No threadContext for general PR comments
       };
+
+      // Resolve repository name/ID to actual repository ID
+      const repositoryId = await this.resolveRepositoryId(params.repository);
       
       // Create the thread (which includes the comment)
       const result = await gitApi.createThread(
         thread,
-        params.repositoryId,
+        repositoryId,
         params.pullRequestId,
         this.config.project
       );
@@ -1024,11 +1136,14 @@ Original error: ${errorMessage}`);
   public async getPullRequestFileChanges(params: GetPullRequestFileChangesParams): Promise<any> {
     try {
       const gitApi = await this.getGitApi();
+
+      // Resolve repository name/ID to actual repository ID
+      const repositoryId = await this.resolveRepositoryId(params.repository);
       
       // If path is provided, we need to get the changes for that specific file
       if (params.path) {
         const changes = await gitApi.getPullRequestIterationChanges(
-          params.repositoryId,
+          repositoryId,
           params.pullRequestId,
           1, // First iteration
           this.config.project,
@@ -1051,8 +1166,8 @@ Original error: ${errorMessage}`);
               // Modified file - get both versions and calculate diff
               try {
                 const [originalContent, currentContent] = await Promise.all([
-                  this.getFileContentByObjectId(params.repositoryId, change.item.originalObjectId),
-                  this.getFileContentByObjectId(params.repositoryId, change.item.objectId)
+                  this.getFileContentByObjectId(repositoryId, change.item.originalObjectId),
+                  this.getFileContentByObjectId(repositoryId, change.item.objectId)
                 ]);
                 
                 diffContent = this.calculateUnifiedDiff(originalContent, currentContent, change.item.path);
@@ -1064,7 +1179,7 @@ Original error: ${errorMessage}`);
             } else if (change.changeType === 1 && change.item?.objectId) {
               // Added file - get new content and format as all additions
               try {
-                const newContent = await this.getFileContentByObjectId(params.repositoryId, change.item.objectId);
+                const newContent = await this.getFileContentByObjectId(repositoryId, change.item.objectId);
                 diffContent = this.calculateAddedFileDiff(newContent, change.item.path);
               } catch (error) {
                 console.error(`Error getting content for new file ${change.item.path}:`, error);
@@ -1073,7 +1188,7 @@ Original error: ${errorMessage}`);
             } else if (change.changeType === 3 && change.item?.originalObjectId) {
               // Deleted file - get original content and format as all deletions
               try {
-                const originalContent = await this.getFileContentByObjectId(params.repositoryId, change.item.originalObjectId);
+                const originalContent = await this.getFileContentByObjectId(repositoryId, change.item.originalObjectId);
                 diffContent = this.calculateDeletedFileDiff(originalContent, change.item.path);
               } catch (error) {
                 console.error(`Error getting content for deleted file ${change.item.path}:`, error);
@@ -1096,7 +1211,7 @@ Original error: ${errorMessage}`);
       
       // If no path is provided, get all changes with diffs
       const changes = await gitApi.getPullRequestIterationChanges(
-        params.repositoryId,
+        repositoryId,
         params.pullRequestId,
         1, // First iteration
         this.config.project
@@ -1135,8 +1250,8 @@ Original error: ${errorMessage}`);
             // Modified file - get both versions and calculate diff
             try {
               const [originalContent, currentContent] = await Promise.all([
-                this.getFileContentByObjectId(params.repositoryId, change.item.originalObjectId),
-                this.getFileContentByObjectId(params.repositoryId, change.item.objectId)
+                this.getFileContentByObjectId(repositoryId, change.item.originalObjectId),
+                this.getFileContentByObjectId(repositoryId, change.item.objectId)
               ]);
               
               diffContent = this.calculateUnifiedDiff(originalContent, currentContent, change.item.path);
@@ -1148,7 +1263,7 @@ Original error: ${errorMessage}`);
           } else if (change.changeType === 1 && change.item?.objectId) {
             // Added file - get new content and format as all additions
             try {
-              const newContent = await this.getFileContentByObjectId(params.repositoryId, change.item.objectId);
+              const newContent = await this.getFileContentByObjectId(repositoryId, change.item.objectId);
               diffContent = this.calculateAddedFileDiff(newContent, change.item.path);
             } catch (error) {
               console.error(`Error getting content for new file ${change.item.path}:`, error);
@@ -1157,7 +1272,7 @@ Original error: ${errorMessage}`);
           } else if (change.changeType === 3 && change.item?.originalObjectId) {
             // Deleted file - get original content and format as all deletions
             try {
-              const originalContent = await this.getFileContentByObjectId(params.repositoryId, change.item.originalObjectId);
+              const originalContent = await this.getFileContentByObjectId(repositoryId, change.item.originalObjectId);
               diffContent = this.calculateDeletedFileDiff(originalContent, change.item.path);
             } catch (error) {
               console.error(`Error getting content for deleted file ${change.item.path}:`, error);
@@ -1190,9 +1305,12 @@ Original error: ${errorMessage}`);
   public async getPullRequestChangesCount(params: GetPullRequestChangesCountParams): Promise<any> {
     try {
       const gitApi = await this.getGitApi();
+
+      // Resolve repository name/ID to actual repository ID
+      const repositoryId = await this.resolveRepositoryId(params.repository);
       
       const changes = await gitApi.getPullRequestIterationChanges(
-        params.repositoryId,
+        repositoryId,
         params.pullRequestId,
         1, // First iteration
         this.config.project
@@ -1216,9 +1334,12 @@ Original error: ${errorMessage}`);
   public async getAllPullRequestChanges(params: GetAllPullRequestChangesParams): Promise<any> {
     try {
       const gitApi = await this.getGitApi();
+
+      // Resolve repository name/ID to actual repository ID
+      const repositoryId = await this.resolveRepositoryId(params.repository);
       
       const changes = await gitApi.getPullRequestIterationChanges(
-        params.repositoryId,
+        repositoryId,
         params.pullRequestId,
         1, // First iteration
         this.config.project

@@ -1,12 +1,12 @@
 export interface GetAICodeReviewParams {
   pullRequestId?: number;
-  repositoryId?: string;
+  repository?: string;
   commitId?: string;
   filePath?: string;
 }
 
 export interface SuggestCodeOptimizationParams {
-  repositoryId: string;
+  repository: string;
   filePath: string;
   lineStart?: number;
   lineEnd?: number;
@@ -14,14 +14,14 @@ export interface SuggestCodeOptimizationParams {
 }
 
 export interface IdentifyCodeSmellsParams {
-  repositoryId: string;
+  repository: string;
   branch?: string;
   filePath?: string;
   severity?: 'high' | 'medium' | 'low' | 'all';
 }
 
 export interface GetPredictiveBugAnalysisParams {
-  repositoryId: string;
+  repository: string;
   pullRequestId?: number;
   branch?: string;
   filePath?: string;

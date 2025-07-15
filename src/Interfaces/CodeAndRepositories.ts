@@ -12,7 +12,7 @@ export interface ListRepositoriesParams {
  */
 export interface GetRepositoryParams {
   projectId: string;
-  repositoryId: string;
+  repository: string;
 }
 
 /**
@@ -27,7 +27,7 @@ export interface CreateRepositoryParams {
  * Interface for listing branches
  */
 export interface ListBranchesParams {
-  repositoryId: string;
+  repository: string;
   filter?: string;
   top?: number;
 }
@@ -38,7 +38,7 @@ export interface ListBranchesParams {
 export interface SearchCodeParams {
   searchText: string;
   projectId?: string;
-  repositoryId?: string;
+  repository?: string;
   fileExtension?: string;
   top?: number;
 }
@@ -47,7 +47,7 @@ export interface SearchCodeParams {
  * Interface for browsing repository
  */
 export interface BrowseRepositoryParams {
-  repositoryId: string;
+  repository: string;
   path?: string;
   versionDescriptor?: {
     version?: string;
@@ -60,7 +60,7 @@ export interface BrowseRepositoryParams {
  * Interface for getting file content
  */
 export interface GetFileContentParams {
-  repositoryId: string;
+  repository: string;
   path: string;
   versionDescriptor?: {
     version?: string;
@@ -73,7 +73,7 @@ export interface GetFileContentParams {
  * Interface for getting commit history
  */
 export interface GetCommitHistoryParams {
-  repositoryId: string;
+  repository: string;
   itemPath?: string;
   top?: number;
   skip?: number;
@@ -84,7 +84,7 @@ export interface GetCommitHistoryParams {
  * Interface for listing pull requests
  */
 export interface ListPullRequestsParams {
-  repositoryId: string;
+  repository: string;
   status?: 'abandoned' | 'active' | 'all' | 'completed' | 'notSet';
   creatorId?: string;
   reviewerId?: string;
@@ -96,7 +96,7 @@ export interface ListPullRequestsParams {
  * Interface for creating pull request
  */
 export interface CreatePullRequestParams {
-  repositoryId: string;
+  repository: string;
   sourceRefName: string;
   targetRefName: string;
   title: string;
@@ -108,7 +108,7 @@ export interface CreatePullRequestParams {
  * Interface for getting pull request by ID
  */
 export interface GetPullRequestParams {
-  repositoryId: string;
+  repository: string;
   pullRequestId: number;
 }
 
@@ -116,7 +116,7 @@ export interface GetPullRequestParams {
  * Interface for getting pull request comments
  */
 export interface GetPullRequestCommentsParams {
-  repositoryId: string;
+  repository: string;
   pullRequestId: number;
   threadId?: number;
   top?: number;
@@ -127,7 +127,7 @@ export interface GetPullRequestCommentsParams {
  * Interface for approving pull request
  */
 export interface ApprovePullRequestParams {
-  repositoryId: string;
+  repository: string;
   pullRequestId: number;
 }
 
@@ -135,7 +135,7 @@ export interface ApprovePullRequestParams {
  * Interface for merging pull request
  */
 export interface MergePullRequestParams {
-  repositoryId: string;
+  repository: string;
   pullRequestId: number;
   mergeStrategy?: 'noFastForward' | 'rebase' | 'rebaseMerge' | 'squash';
   comment?: string;
@@ -145,7 +145,7 @@ export interface MergePullRequestParams {
  * Interface for getting commits
  */
 export interface GetCommitsParams {
-  repositoryId: string;
+  repository: string;
   path?: string;
   version?: string;
   versionType?: string;
@@ -156,20 +156,22 @@ export interface GetCommitsParams {
  * Interface for getting pull requests
  */
 export interface GetPullRequestsParams {
-  repositoryId: string;
+  repository: string;
   status?: 'abandoned' | 'active' | 'all' | 'completed' | 'notSet';
   creatorId?: string;
   reviewerId?: string;
   sourceRefName?: string;
   targetRefName?: string;
   projectId?: string;
+  skip?: number;
+  top?: number;
 }
 
 /**
  * Interface for completing pull request
  */
 export interface CompletePullRequestParams {
-  repositoryId: string;
+  repository: string;
   pullRequestId: number;
   status: 'completed';
   mergeStrategy: 'noFastForward' | 'rebase' | 'rebaseMerge' | 'squash';
@@ -182,7 +184,7 @@ export interface CompletePullRequestParams {
  * Interface for adding inline comment to pull request
  */
 export interface AddPullRequestInlineCommentParams {
-  repositoryId: string;
+  repository: string;
   pullRequestId: number;
   comment: string;
   position: {
@@ -196,7 +198,7 @@ export interface AddPullRequestInlineCommentParams {
  * Interface for adding file comment to pull request
  */
 export interface AddPullRequestFileCommentParams {
-  repositoryId: string;
+  repository: string;
   pullRequestId: number;
   path: string;
   comment: string;
@@ -206,7 +208,7 @@ export interface AddPullRequestFileCommentParams {
  * Interface for adding general comment to pull request
  */
 export interface AddPullRequestCommentParams {
-  repositoryId: string;
+  repository: string;
   pullRequestId: number;
   comment: string;
 }
@@ -215,7 +217,7 @@ export interface AddPullRequestCommentParams {
  * Interface for getting pull request file changes
  */
 export interface GetPullRequestFileChangesParams {
-  repositoryId: string;
+  repository: string;
   pullRequestId: number;
   path?: string;
 }
@@ -224,7 +226,7 @@ export interface GetPullRequestFileChangesParams {
  * Interface for getting pull request changes count
  */
 export interface GetPullRequestChangesCountParams {
-  repositoryId: string;
+  repository: string;
   pullRequestId: number;
 }
 
@@ -232,7 +234,7 @@ export interface GetPullRequestChangesCountParams {
  * Interface for getting all pull request changes
  */
 export interface GetAllPullRequestChangesParams {
-  repositoryId: string;
+  repository: string;
   pullRequestId: number;
   top?: number;
   skip?: number;

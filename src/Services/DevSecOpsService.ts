@@ -26,7 +26,7 @@ export class DevSecOpsService extends AzureDevOpsService {
     // For now, we're returning a mock response
     return {
       scanId: "scan-" + Math.random().toString(36).substring(2, 9),
-      repositoryId: params.repositoryId,
+      repository: params.repository,
       branch: params.branch || "main",
       scanType: params.scanType || "all",
       status: "initiated",

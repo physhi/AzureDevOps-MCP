@@ -173,7 +173,7 @@ export class GitTools {
         content: [
           {
             type: "text",
-            text: `## 📊 Commit History\n\n**No commits found** for the specified criteria.\n\n**Repository:** ${params.repositoryId}\n${params.itemPath ? `**File Path:** ${params.itemPath}\n` : ''}**Total commits:** 0`
+            text: `## 📊 Commit History\n\n**No commits found** for the specified criteria.\n\n**Repository:** ${params.repository}\n${params.itemPath ? `**File Path:** ${params.itemPath}\n` : ''}**Total commits:** 0`
           }
         ]
       };
@@ -238,7 +238,7 @@ export class GitTools {
     let result = `## 📊 Commit History\n\n`;
 
     // Add header with metadata
-    result += `**Repository:** ${params.repositoryId}\n`;
+    result += `**Repository:** ${params.repository}\n`;
     if (params.itemPath) {
       result += `**File Path:** ${params.itemPath}\n`;
     }
@@ -321,11 +321,152 @@ export class GitTools {
   public async listPullRequests(params: ListPullRequestsParams): Promise<McpResponse> {
     try {
       const pullRequests = await this.gitService.getPullRequests(params);
-      return formatMcpResponse(pullRequests);
+      const formattedDocument = this.formatPullRequestsTable(pullRequests, params.repository);
+      return formatMcpResponse(pullRequests, formattedDocument);
     } catch (error) {
       console.error('Error in listPullRequests tool:', error);
       return formatErrorResponse(error);
     }
+  }
+
+  /**
+   * Formats pull requests data into a human-readable table format
+   */
+  private formatPullRequestsTable(data: any[], repository: string): string {
+    if (!data || data.length === 0) {
+      return `# 📋 Pull Requests for Repository: ${repository}\n\n**No pull requests found.**`;
+    }
+
+    let result = `# 📋 Pull Requests for Repository: ${repository}\n\n`;
+    result += `**Total Pull Requests:** ${data.length}\n\n`;
+
+    // Create table header
+    result += `| PR # | Title | Author | Status | Created | Reviewers | Branch |\n`;
+    result += `|------|-------|--------|--------|---------|-----------|--------|\n`;
+
+    data.forEach((pr) => {
+      // Get status display
+      const statusMap: { [key: number]: string } = {
+        1: '🔄 Active',
+        2: '✅ Completed', 
+        3: '🔀 Abandoned',
+        4: '❌ Not Set'
+      };
+      const status = statusMap[pr.status] || `Unknown (${pr.status})`;
+
+      // Get author name
+      const author = pr.createdBy?.displayName || pr.createdBy?.uniqueName || 'Unknown';
+
+      // Get creation date (formatted)
+      const createdDate = pr.creationDate ? new Date(pr.creationDate).toLocaleDateString() : 'Unknown';
+
+      // Get reviewers (required ones first, then others)
+      const reviewers = pr.reviewers || [];
+      const requiredReviewers = reviewers.filter((r: any) => r.isRequired).map((r: any) => r.displayName || r.uniqueName);
+      const optionalReviewers = reviewers.filter((r: any) => !r.isRequired).map((r: any) => r.displayName || r.uniqueName);
+      
+      let reviewerText = '';
+      if (requiredReviewers.length > 0) {
+        reviewerText += `**Required:** ${requiredReviewers.join(', ')}`;
+      }
+      if (optionalReviewers.length > 0) {
+        if (reviewerText) reviewerText += '<br>';
+        reviewerText += `*Optional:* ${optionalReviewers.join(', ')}`;
+      }
+      if (!reviewerText) reviewerText = 'None';
+
+      // Get branch info
+      const sourceBranch = pr.sourceRefName?.replace('refs/heads/', '') || 'Unknown';
+      const targetBranch = pr.targetRefName?.replace('refs/heads/', '') || 'Unknown';
+      const branchInfo = `${sourceBranch} → ${targetBranch}`;
+
+      // Truncate title if too long
+      const title = pr.title ? (pr.title.length > 50 ? pr.title.substring(0, 47) + '...' : pr.title) : 'No Title';
+
+      result += `| #${pr.pullRequestId} | ${title} | ${author} | ${status} | ${createdDate} | ${reviewerText} | ${branchInfo} |\n`;
+    });
+
+    // Add detailed section for each PR
+    result += `\n## 📄 Detailed Information\n\n`;
+    
+    data.forEach((pr, index) => {
+      result += `### PR #${pr.pullRequestId}: ${pr.title || 'No Title'}\n\n`;
+      
+      // Basic info
+      result += `**👤 Author:** ${pr.createdBy?.displayName || 'Unknown'} (${pr.createdBy?.uniqueName || 'N/A'})\n`;
+      result += `**📅 Created:** ${pr.creationDate ? new Date(pr.creationDate).toLocaleString() : 'Unknown'}\n`;
+      result += `**🔄 Status:** ${(() => {
+        const statusMap: { [key: number]: string } = {
+          1: '🔄 Active (Open)',
+          2: '✅ Completed (Merged)', 
+          3: '🔀 Abandoned (Closed)',
+          4: '❌ Not Set'
+        };
+        return statusMap[pr.status] || `Unknown (${pr.status})`;
+      })()}\n`;
+      
+      // Branch information
+      const sourceBranch = pr.sourceRefName?.replace('refs/heads/', '') || 'Unknown';
+      const targetBranch = pr.targetRefName?.replace('refs/heads/', '') || 'Unknown';
+      result += `**🌿 Branch:** \`${sourceBranch}\` → \`${targetBranch}\`\n`;
+      
+      // Draft status
+      if (pr.isDraft) {
+        result += `**📝 Status:** 🚧 DRAFT\n`;
+      }
+
+      // Reviewers with voting status
+      const reviewers = pr.reviewers || [];
+      if (reviewers.length > 0) {
+        result += `**👥 Reviewers:**\n`;
+        reviewers.forEach((reviewer: any) => {
+          const voteMap: { [key: number]: string } = {
+            10: '✅ Approved',
+            5: '✅ Approved with Suggestions',
+            0: '⏳ No Response',
+            '-5': '⏸️ Waiting for Author',
+            '-10': '❌ Rejected'
+          };
+          const vote = voteMap[reviewer.vote] || `Unknown (${reviewer.vote})`;
+          const required = reviewer.isRequired ? ' **(Required)**' : ' *(Optional)*';
+          result += `  - ${reviewer.displayName || reviewer.uniqueName}${required}: ${vote}\n`;
+        });
+      } else {
+        result += `**👥 Reviewers:** None assigned\n`;
+      }
+
+      // Description
+      if (pr.description && pr.description.trim()) {
+        const description = pr.description.length > 200 ? pr.description.substring(0, 197) + '...' : pr.description;
+        result += `**📝 Description:** ${description}\n`;
+      }
+
+      // Work items (if available in the response)
+      if (pr.workItems && pr.workItems.length > 0) {
+        result += `**🔗 Work Items:**\n`;
+        pr.workItems.forEach((workItem: any) => {
+          result += `  - #${workItem.id}: ${workItem.title || 'No Title'}\n`;
+        });
+      }
+
+      // Labels (if any)
+      if (pr.labels && pr.labels.length > 0) {
+        result += `**🏷️ Labels:** ${pr.labels.map((label: any) => label.name).join(', ')}\n`;
+      }
+
+      // Merge information
+      if (pr.status === 2 && pr.lastMergeCommit) { // Completed
+        result += `**✅ Merged:** Commit ${pr.lastMergeCommit.commitId?.substring(0, 8) || 'Unknown'}\n`;
+      }
+
+      result += `**🔗 URL:** [View in Azure DevOps](${pr.url})\n\n`;
+      
+      if (index < data.length - 1) {
+        result += `---\n\n`;
+      }
+    });
+
+    return result;
   }
 
   /**
@@ -354,7 +495,7 @@ export class GitTools {
           content: [
             {
               type: "text",
-              text: `## ❌ Pull Request Not Found\n\nPull request #${params.pullRequestId} was not found in repository '${params.repositoryId}'.\n\nPlease check:\n- The pull request ID is correct\n- The repository ID is correct\n- You have access permissions to the repository`
+              text: `## ❌ Pull Request Not Found\n\nPull request #${params.pullRequestId} was not found in repository '${params.repository}'.\n\nPlease check:\n- The pull request ID is correct\n- The repository name/ID is correct\n- You have access permissions to the repository`
             }
           ]
         };
@@ -621,7 +762,7 @@ TargetCommitId: ${pullRequest.lastMergeTargetCommit?.commitId || 'N/A'}
             content: [
               {
                 type: "text",
-                text: `## ❌ Invalid Line Position\n\n${error.message}\n\n### 🔍 **How to Find the Correct Line:**\n\n\`\`\`\ngetPullRequestFileChanges repositoryId="${params.repositoryId}" pullRequestId=${params.pullRequestId} path="${params.path}"\n\`\`\`\n\nThis will show you:\n\n**📁 For NEWLY ADDED files:**\n- All lines are available for comments (1, 2, 3, ... N)\n- Diff shows: \`+1: line content\`, \`+2: line content\`, etc.\n- You can comment on ANY line number from 1 to the total lines\n\n**📝 For MODIFIED files:**\n- Only changed line ranges can be commented on\n- Look for lines with \`+\` (added) or context lines\n- Line numbers correspond to the new version of the file\n\n**🗑️ For DELETED files:**\n- Only the deleted lines can be commented on\n- Diff shows: \`-1: deleted content\`, \`-2: deleted content\`, etc.`
+                text: `## ❌ Invalid Line Position\n\n${error.message}\n\n### 🔍 **How to Find the Correct Line:**\n\n\`\`\`\ngetPullRequestFileChanges repository="${params.repository}" pullRequestId=${params.pullRequestId} path="${params.path}"\n\`\`\`\n\nThis will show you:\n\n**📁 For NEWLY ADDED files:**\n- All lines are available for comments (1, 2, 3, ... N)\n- Diff shows: \`+1: line content\`, \`+2: line content\`, etc.\n- You can comment on ANY line number from 1 to the total lines\n\n**📝 For MODIFIED files:**\n- Only changed line ranges can be commented on\n- Look for lines with \`+\` (added) or context lines\n- Line numbers correspond to the new version of the file\n\n**🗑️ For DELETED files:**\n- Only the deleted lines can be commented on\n- Diff shows: \`-1: deleted content\`, \`-2: deleted content\`, etc.`
               }
             ]
           };

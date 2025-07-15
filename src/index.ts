@@ -597,10 +597,10 @@ async function main() {
     );
     
     allowedTools.has("getRepository") && server.tool("getRepository", 
-      "Fetch comprehensive details for a specific Git repository by its ID within a project. Returns repository metadata including name, project, size, default branch, remote URL, and web URL.",
+      "Fetch comprehensive details for a specific Git repository by its name or ID within a project. Returns repository metadata including name, project, size, default branch, remote URL, and web URL. Supports both repository names (e.g., 'MyProject') and repository IDs (GUIDs).",
       {
         projectId: z.string().describe("The project ID or name where the repository is located. Required to correctly scope the repository lookup."),
-        repositoryId: z.string().describe("The unique identifier or name of the repository to retrieve details for.")
+        repository: z.string().describe("The repository name (e.g., 'MyProject') or ID (GUID) to retrieve details for. Repository names are case-insensitive and must be unique within the project.")
       },
       async (params, extra) => {
         const result = await gitTools.getRepository(params);
@@ -629,9 +629,9 @@ async function main() {
     );
     
     allowedTools.has("listBranches") && server.tool("listBranches", 
-      "List all branches in a Git repository with optional name pattern filtering and pagination. Returns branch details including name, commit ID, and object ID. Results can be filtered using wildcards (e.g., 'feature/*' for all feature branches).",
+      "List all branches in a Git repository with optional name pattern filtering and pagination. Returns branch details including name, commit ID, and object ID. Results can be filtered using wildcards (e.g., 'feature/*' for all feature branches). Supports both repository names and IDs.",
       {
-        repositoryId: z.string().describe("The unique identifier or name of the repository to list branches from. Required to identify the correct repository."),
+        repository: z.string().describe("The repository name (e.g., 'MyProject') or ID (GUID) to list branches from. Repository names are case-insensitive."),
         filter: z.string().optional().describe("Optional wildcard pattern to filter branch names (e.g., 'feature/*', 'release/*'). Use this to narrow down results to specific branch types."),
         top: z.number().optional().describe("Maximum number of branches to return in the response. Use this to limit large result sets, especially for repositories with many branches.")
       },
@@ -665,9 +665,9 @@ async function main() {
     );
     
     allowedTools.has("browseRepository") && server.tool("browseRepository", 
-      "Navigate and explore the file and folder structure within a Git repository, similar to a filesystem browser. Returns a list of items (files and folders) at the specified path. Optionally specify a branch, tag, or commit to browse repository content at a specific version.",
+      "Navigate and explore the file and folder structure within a Git repository, similar to a filesystem browser. Returns a list of items (files and folders) at the specified path. Optionally specify a branch, tag, or commit to browse repository content at a specific version. Supports both repository names and IDs.",
       {
-        repositoryId: z.string().describe("The unique identifier or name of the repository to browse. Required to identify the correct repository."),
+        repository: z.string().describe("The repository name (e.g., 'MyProject') or ID (GUID) to browse. Repository names are case-insensitive."),
         path: z.string().optional().describe("The folder path within the repository to browse (e.g., 'src/components'). Omit or use empty string to browse the repository root."),
         versionDescriptor: z.object({
           version: z.string().optional().describe("The name of the branch (e.g., 'main'), tag, or commit ID to browse. Defaults to the default branch if not specified."),
@@ -686,9 +686,9 @@ async function main() {
     );
     
     allowedTools.has("getFileContent") && server.tool("getFileContent", 
-      "Retrieve the raw text content of a specific file from a Git repository. Returns the file content as a string. Useful for examining code, configuration files, or any text-based content stored in the repository. Optionally specify a branch, tag, or commit to retrieve file content from a specific version.",
+      "Retrieve the raw text content of a specific file from a Git repository. Returns the file content as a string. Useful for examining code, configuration files, or any text-based content stored in the repository. Optionally specify a branch, tag, or commit to retrieve file content from a specific version. Supports both repository names and IDs.",
       {
-        repositoryId: z.string().describe("The unique identifier or name of the repository containing the file. Required to locate the correct repository."),
+        repository: z.string().describe("The repository name (e.g., 'MyProject') or ID (GUID) containing the file. Repository names are case-insensitive."),
         path: z.string().describe("The full path to the file within the repository, including filename and extension (e.g., 'src/utils/helpers.js')."),
         versionDescriptor: z.object({
           version: z.string().optional().describe("The name of the branch (e.g., 'main'), tag, or commit ID to retrieve the file from. Defaults to the default branch if not specified."),
@@ -707,9 +707,9 @@ async function main() {
     );
     
     allowedTools.has("getCommitHistory") && server.tool("getCommitHistory", 
-      "Retrieve the commit history for a Git repository, showing a chronological list of commits with their metadata (ID, author, date, message). Optionally filter to commits affecting a specific file path and use pagination to handle repositories with extensive history.",
+      "Retrieve the commit history for a Git repository, showing a chronological list of commits with their metadata (ID, author, date, message). Optionally filter to commits affecting a specific file path and use pagination to handle repositories with extensive history. Supports both repository names and IDs.",
       {
-        repositoryId: z.string().describe("The unique identifier or name of the repository to get history for. Required to identify the correct repository."),
+        repository: z.string().describe("The repository name (e.g., 'MyProject') or ID (GUID) to get history for. Repository names are case-insensitive."),
         itemPath: z.string().optional().describe("Optional path to a specific file or folder to filter commits to only those that modified the specified path."),
         top: z.number().optional().describe("Maximum number of commits to return in the response. Use this to limit results for repositories with extensive history."),
         skip: z.number().optional().describe("Number of commits to skip before starting to return results. Use with 'top' for implementing pagination through commit history."),
@@ -726,9 +726,9 @@ async function main() {
     );
     
     allowedTools.has("listPullRequests") && server.tool("listPullRequests", 
-      "Retrieve a list of pull requests in a Git repository with comprehensive filtering options. Returns pull request details including ID, title, description, creator, reviewers, and status. Filter by status, creator, or reviewer to find specific PRs.",
+      "Retrieve a list of pull requests in a Git repository with comprehensive filtering options. Returns pull request details including ID, title, description, creator, reviewers, and status. Filter by status, creator, or reviewer to find specific PRs. Supports both repository names and IDs.",
       {
-        repositoryId: z.string().describe("The unique identifier or name of the repository to list pull requests from. Required to identify the correct repository."),
+        repository: z.string().describe("The repository name (e.g., 'MyProject') or ID (GUID) to list pull requests from. Repository names are case-insensitive."),
         status: z.enum(['abandoned', 'active', 'all', 'completed', 'notSet']).optional().describe("Filter pull requests by their current status: 'active' for open PRs, 'completed' for merged PRs, 'abandoned' for closed/rejected PRs, 'all' for all PRs regardless of status."),
         creatorId: z.string().optional().describe("Filter pull requests to only those created by a specific user ID or email address."),
         reviewerId: z.string().optional().describe("Filter pull requests to only those where a specific user ID or email address has been assigned as a reviewer."),
@@ -748,7 +748,7 @@ async function main() {
     allowedTools.has("createPullRequest") && server.tool("createPullRequest", 
       "Create a new pull request in a Git repository to propose merging changes from a source branch into a target branch. The PR will track the differences between branches and allow for code review. Optionally provide a description and assign reviewers to the PR.",
       {
-        repositoryId: z.string().describe("The unique identifier or name of the repository where the pull request will be created. Required to identify the correct repository."),
+        repository: z.string().describe("The repository name (e.g., 'MyProject') or ID (GUID) where the pull request will be created. Repository names are case-insensitive."),
         sourceRefName: z.string().describe("The name of the source branch containing the changes to be reviewed, in full reference format (e.g., 'refs/heads/feature/new-feature')."),
         targetRefName: z.string().describe("The name of the target branch where changes will be merged into, in full reference format (e.g., 'refs/heads/main')."),
         title: z.string().describe("A concise, descriptive title for the pull request that summarizes the changes being proposed."),
@@ -766,9 +766,9 @@ async function main() {
     );
     
     allowedTools.has("getPullRequest") && server.tool("getPullRequest", 
-      "Fetch comprehensive details about a specific pull request by its ID within a repository. Returns all PR metadata including title, description, status, source and target branches, creator, reviewers, and voting status. Use this to get the full state of a pull request.",
+      "Fetch comprehensive details about a specific pull request by its ID within a repository. Returns all PR metadata including title, description, status, source and target branches, creator, reviewers, and voting status. Use this to get the full state of a pull request. Supports both repository names and IDs.",
       {
-        repositoryId: z.string().describe("The unique identifier or name of the repository containing the pull request. Required to locate the correct repository."),
+        repository: z.string().describe("The repository name (e.g., 'MyProject') or ID (GUID) containing the pull request. Repository names are case-insensitive."),
         pullRequestId: z.number().describe("The numeric ID of the pull request to retrieve. This is the PR number shown in the Azure DevOps UI (e.g., PR #123).")
       },
       async (params, extra) => {
@@ -782,9 +782,9 @@ async function main() {
     );
     
     allowedTools.has("getPullRequestComments") && server.tool("getPullRequestComments", 
-      "Retrieve all comment threads and associated comments for a pull request. Returns both general PR comments and code review comments with their context. Optionally filter to a specific thread by ID or use pagination for PRs with extensive discussions.",
+      "Retrieve all comment threads and associated comments for a pull request. Returns both general PR comments and code review comments with their context. Optionally filter to a specific thread by ID or use pagination for PRs with extensive discussions. Supports both repository names and IDs.",
       {
-        repositoryId: z.string().describe("The unique identifier or name of the repository containing the pull request. Required to locate the correct repository."),
+        repository: z.string().describe("The repository name (e.g., 'MyProject') or ID (GUID) containing the pull request. Repository names are case-insensitive."),
         pullRequestId: z.number().describe("The numeric ID of the pull request to retrieve comments from. This is the PR number shown in the Azure DevOps UI."),
         threadId: z.number().optional().describe("Optional ID of a specific comment thread to retrieve. If provided, only returns the specified thread rather than all threads."),
         top: z.number().optional().describe("Maximum number of comment threads to return in the response. Use this for pagination in PRs with many comments."),
@@ -801,9 +801,9 @@ async function main() {
     );
     
     allowedTools.has("approvePullRequest") && server.tool("approvePullRequest", 
-      "Cast an 'Approve' vote on a pull request on behalf of the current authenticated user. This marks the PR as approved by the user and contributes toward satisfying approval requirements defined in branch policies. Equivalent to clicking 'Approve' in the Azure DevOps UI.",
+      "Cast an 'Approve' vote on a pull request on behalf of the current authenticated user. This marks the PR as approved by the user and contributes toward satisfying approval requirements defined in branch policies. Equivalent to clicking 'Approve' in the Azure DevOps UI. Supports both repository names and IDs.",
       {
-        repositoryId: z.string().describe("The unique identifier or name of the repository containing the pull request. Required to locate the correct repository."),
+        repository: z.string().describe("The repository name (e.g., 'MyProject') or ID (GUID) containing the pull request. Repository names are case-insensitive."),
         pullRequestId: z.number().describe("The numeric ID of the pull request to approve. This is the PR number shown in the Azure DevOps UI (e.g., PR #123).")
       },
       async (params, extra) => {
@@ -817,9 +817,9 @@ async function main() {
     );
     
     allowedTools.has("mergePullRequest") && server.tool("mergePullRequest", 
-      "Complete a pull request by merging the source branch changes into the target branch. This operation requires that all required reviewers have approved the PR and all branch policies are satisfied. Supports different merge strategies (squash, rebase, etc.) and allows adding a custom commit message.",
+      "Complete a pull request by merging the source branch changes into the target branch. This operation requires that all required reviewers have approved the PR and all branch policies are satisfied. Supports different merge strategies (squash, rebase, etc.) and allows adding a custom commit message. Supports both repository names and IDs.",
       {
-        repositoryId: z.string().describe("The unique identifier or name of the repository containing the pull request. Required to locate the correct repository."),
+        repository: z.string().describe("The repository name (e.g., 'MyProject') or ID (GUID) containing the pull request. Repository names are case-insensitive."),
         pullRequestId: z.number().describe("The numeric ID of the pull request to merge. This is the PR number shown in the Azure DevOps UI (e.g., PR #123)."),
         mergeStrategy: z.enum(['noFastForward', 'rebase', 'rebaseMerge', 'squash']).optional().describe("The strategy to use when merging changes: 'noFastForward' creates a merge commit, 'rebase' updates the source branch commits onto the target branch, 'rebaseMerge' combines rebase with a merge commit, 'squash' combines all changes into a single commit."),
         comment: z.string().optional().describe("Optional comment to include in the merge commit message. Use this to provide additional context about the merge beyond the default message.")
@@ -838,7 +838,7 @@ async function main() {
     allowedTools.has("addPullRequestInlineComment") && server.tool("addPullRequestInlineComment",
       "Add an inline code comment to a specific line and character position in a file changed within a pull request. This creates a comment thread anchored to the exact line in the diff. The comment will appear in the Files tab of the PR at the specified position. The system automatically retrieves the correct change tracking ID from the PR diff.",
       {
-        repositoryId: z.string().describe("The unique identifier or name of the repository containing the pull request. Required to locate the correct PR."),
+        repository: z.string().describe("The repository name (e.g., 'MyProject') or ID (GUID) containing the pull request. Repository names are case-insensitive."),
         pullRequestId: z.number().describe("The numeric ID of the pull request where the comment will be added. This is the PR number shown in the Azure DevOps UI."),
         comment: z.string().describe("The text content of the comment to add. Can include markdown formatting."),
         position: z.object({
@@ -860,7 +860,7 @@ async function main() {
     allowedTools.has("addPullRequestFileComment") && server.tool("addPullRequestFileComment",
       "Add a comment at the file level in a pull request, without anchoring to a specific line. This creates a comment thread associated with the entire file rather than a specific code line. The comment will appear at the file level in the Files tab of the PR. Use this when your feedback applies to the entire file.",
       {
-        repositoryId: z.string().describe("The unique identifier or name of the repository containing the pull request. Required to locate the correct PR."),
+        repository: z.string().describe("The repository name (e.g., 'MyProject') or ID (GUID) containing the pull request. Repository names are case-insensitive."),
         pullRequestId: z.number().describe("The numeric ID of the pull request where the comment will be added. This is the PR number shown in the Azure DevOps UI."),
         path: z.string().describe("The full path to the file within the repository that the comment relates to. Must be a file changed in the PR."),
         comment: z.string().describe("The text content of the comment to add. Can include markdown formatting.")
@@ -878,7 +878,7 @@ async function main() {
     allowedTools.has("addPullRequestComment") && server.tool("addPullRequestComment",
       "Add a general comment to a pull request that is not tied to any specific file or code line. This creates a comment thread in the Overview tab of the PR. Use this for general feedback about the PR as a whole, rather than specific code changes.",
       {
-        repositoryId: z.string().describe("The unique identifier or name of the repository containing the pull request. Required to locate the correct PR."),
+        repository: z.string().describe("The repository name (e.g., 'MyProject') or ID (GUID) containing the pull request. Repository names are case-insensitive."),
         pullRequestId: z.number().describe("The numeric ID of the pull request where the comment will be added. This is the PR number shown in the Azure DevOps UI."),
         comment: z.string().describe("The text content of the comment to add. Can include markdown formatting for rich text, code blocks, etc.")
       },
@@ -896,7 +896,7 @@ async function main() {
     allowedTools.has("getPullRequestFileChanges") && server.tool("getPullRequestFileChanges",
       "Retrieve detailed file diff information for a specific file changed within a pull request. Returns change metadata including change type (add, edit, delete), before/after content identifiers, and file path information. Optionally filter to a specific file path.",
       {
-        repositoryId: z.string().describe("The unique identifier or name of the repository containing the pull request. Required to locate the correct PR."),
+        repository: z.string().describe("The repository name (e.g., 'MyProject') or ID (GUID) containing the pull request. Repository names are case-insensitive."),
         pullRequestId: z.number().describe("The numeric ID of the pull request to examine. This is the PR number shown in the Azure DevOps UI."),
         path: z.string().optional().describe("Optional path to a specific file to return changes for. If omitted, changes for all files will be returned but filtered to match this specific path.")
       },
@@ -913,7 +913,7 @@ async function main() {
     allowedTools.has("getPullRequestChangesCount") && server.tool("getPullRequestChangesCount",
       "Get statistical summary of changes in a pull request, including total count of files changed and breakdowns by change type (added, modified, deleted). Useful for understanding the scope of changes in a PR at a glance.",
       {
-        repositoryId: z.string().describe("The unique identifier or name of the repository containing the pull request. Required to locate the correct PR."),
+        repository: z.string().describe("The repository name (e.g., 'MyProject') or ID (GUID) containing the pull request. Repository names are case-insensitive."),
         pullRequestId: z.number().describe("The numeric ID of the pull request to analyze. This is the PR number shown in the Azure DevOps UI.")
       },
       async (params, extra) => {
@@ -929,7 +929,7 @@ async function main() {
     allowedTools.has("getAllPullRequestChanges") && server.tool("getAllPullRequestChanges",
       "Retrieve a comprehensive list of all file changes in a pull request with pagination support. Returns detailed information about each changed file including the change type, file path, and content identifiers. Use pagination parameters to handle large PRs with many file changes.",
       {
-        repositoryId: z.string().describe("The unique identifier or name of the repository containing the pull request. Required to locate the correct PR."),
+        repository: z.string().describe("The repository name (e.g., 'MyProject') or ID (GUID) containing the pull request. Repository names are case-insensitive."),
         pullRequestId: z.number().describe("The numeric ID of the pull request to retrieve changes for. This is the PR number shown in the Azure DevOps UI."),
         top: z.number().optional().describe("Maximum number of change entries to return in a single request. Use this for pagination to avoid large response payloads."),
         skip: z.number().optional().describe("Number of change entries to skip before starting to return results. Use with 'top' for implementing pagination.")
@@ -1183,9 +1183,9 @@ async function main() {
     
     // Register DevSecOps Tools
     allowedTools.has("runSecurityScan") && server.tool("runSecurityScan", 
-      "Run security scans on repositories",
+      "Run security scans on repositories. Supports both repository names and IDs.",
       {
-        repositoryId: z.string().describe("ID of the repository to scan"),
+        repository: z.string().describe("Repository name (e.g., 'MyProject') or ID (GUID) to scan. Repository names are case-insensitive."),
         branch: z.string().optional().describe("Branch to scan"),
         scanType: z.enum(['static', 'dynamic', 'container', 'dependency', 'all']).optional().describe("Type of security scan to run")
       },
@@ -1628,9 +1628,9 @@ async function main() {
     );
 
     allowedTools.has("suggestCodeOptimization") && server.tool("suggestCodeOptimization", 
-      "Suggest code optimizations using AI",
+      "Suggest code optimizations using AI. Supports both repository names and IDs.",
       {
-        repositoryId: z.string().describe("ID of the repository"),
+        repository: z.string().describe("Repository name (e.g., 'MyProject') or ID (GUID). Repository names are case-insensitive."),
         filePath: z.string().describe("Path to the file to optimize"),
         lineStart: z.number().optional().describe("Starting line number"),
         lineEnd: z.number().optional().describe("Ending line number"),
@@ -1646,9 +1646,9 @@ async function main() {
     );
 
     allowedTools.has("identifyCodeSmells") && server.tool("identifyCodeSmells", 
-      "Identify potential code smells and anti-patterns",
+      "Identify potential code smells and anti-patterns. Supports both repository names and IDs.",
       {
-        repositoryId: z.string().describe("ID of the repository"),
+        repository: z.string().describe("Repository name (e.g., 'MyProject') or ID (GUID). Repository names are case-insensitive."),
         branch: z.string().optional().describe("Branch to analyze"),
         filePath: z.string().optional().describe("Path to the file to analyze"),
         severity: z.enum(['high', 'medium', 'low', 'all']).optional().describe("Severity level to filter by")
@@ -1663,9 +1663,9 @@ async function main() {
     );
 
     allowedTools.has("getPredictiveBugAnalysis") && server.tool("getPredictiveBugAnalysis", 
-      "Predict potential bugs in code changes",
+      "Predict potential bugs in code changes. Supports both repository names and IDs.",
       {
-        repositoryId: z.string().describe("ID of the repository"),
+        repository: z.string().describe("Repository name (e.g., 'MyProject') or ID (GUID). Repository names are case-insensitive."),
         pullRequestId: z.number().optional().describe("ID of the pull request"),
         branch: z.string().optional().describe("Branch to analyze"),
         filePath: z.string().optional().describe("Path to the file to analyze")
