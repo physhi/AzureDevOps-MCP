@@ -1147,17 +1147,6 @@ Original error: ${errorMessage}`);
         let iterationNumber = 1;
         
         try {
-          // First, get the PR to see how many iterations it has
-          const pullRequest = await gitApi.getPullRequest(
-            repositoryId,
-            params.pullRequestId,
-            this.config.project
-          );
-          
-          console.log('=== DEBUG: PR Info ===');
-          console.log('PR ID:', params.pullRequestId);
-          console.log('PR has iterations:', pullRequest);
-          
           // Try to get the latest changes (typically from the latest iteration)
           changes = await gitApi.getPullRequestIterationChanges(
             repositoryId,
@@ -1165,9 +1154,6 @@ Original error: ${errorMessage}`);
             iterationNumber,
             this.config.project
           );
-          
-          console.log('=== DEBUG: Changes Retrieved ===');
-          console.log('Total change entries:', changes.changeEntries?.length || 0);
           
         } catch (error) {
           console.error('Error getting PR changes:', error);
@@ -1177,17 +1163,6 @@ Original error: ${errorMessage}`);
         // Normalize path for flexible matching (handle both with and without leading slash)
         const normalizedRequestPath = params.path.startsWith('/') ? params.path : `/${params.path}`;
         const normalizedRequestPathWithoutSlash = params.path.startsWith('/') ? params.path.substring(1) : params.path;
-        
-        // Debug: Log all available paths for comparison
-        console.log('=== DEBUG: Path Matching ===');
-        console.log('Requested path:', JSON.stringify(params.path));
-        console.log('Normalized with slash:', JSON.stringify(normalizedRequestPath));
-        console.log('Normalized without slash:', JSON.stringify(normalizedRequestPathWithoutSlash));
-        console.log('Available paths in PR:');
-        changes.changeEntries?.forEach((entry: any, index: number) => {
-          console.log(`  ${index + 1}. ${JSON.stringify(entry.item?.path)}`);
-        });
-        console.log('============================');
         
         // Filter changes for the specific file with flexible path matching
         const filteredChanges = {
@@ -1200,10 +1175,6 @@ Original error: ${errorMessage}`);
                    entryPath === normalizedRequestPath || 
                    entryPath === normalizedRequestPathWithoutSlash ||
                    entryPath === `/${normalizedRequestPathWithoutSlash}`;
-            
-            if (matches) {
-              console.log(`MATCH FOUND: ${JSON.stringify(entryPath)} matches ${JSON.stringify(params.path)}`);
-            }
             
             return matches;
           }) || []
@@ -1572,7 +1543,7 @@ Original error: ${errorMessage}`);
   }
 
   /**
-   * Add inline comment guidance to diff content
+   * Add inline comment guidance to diff content with accurate line numbers
    */
   private addInlineCommentGuidance(diffContent: string, changeType: any): string {
     const lines = diffContent.split('\n');
@@ -1597,12 +1568,16 @@ Original error: ${errorMessage}`);
     
     for (const line of lines) {
       if (line.startsWith('@@')) {
-        // Parse hunk header to get line numbers
-        const hunkMatch = line.match(/@@ -(\d+),?\d* \+(\d+),?\d* @@/);
+        // Parse hunk header to get accurate starting line numbers
+        // Format: @@ -startLeft,countLeft +startRight,countRight @@
+        const hunkMatch = line.match(/@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/);
         if (hunkMatch) {
           leftLineNumber = parseInt(hunkMatch[1]);
-          rightLineNumber = parseInt(hunkMatch[2]);
+          rightLineNumber = parseInt(hunkMatch[3]);
           inHunk = true;
+          
+          // Log for debugging
+          console.log(`Hunk: left starts at ${leftLineNumber}, right starts at ${rightLineNumber}`);
         }
         enhancedLines.push(line);
         enhancedLines.push(`⬇️ Lines below can be commented on:`);
@@ -1611,7 +1586,7 @@ Original error: ${errorMessage}`);
         enhancedLines.push(`${line}  [← ${rightLineNumber}, right]`);
         rightLineNumber++;
       } else if (line.startsWith('-') && !line.startsWith('---')) {
-        // Removed line - can be commented on (left side)
+        // Removed line - can be commented on (left side)  
         enhancedLines.push(`${line}  [← ${leftLineNumber}, left]`);
         leftLineNumber++;
       } else if (line.startsWith(' ') && inHunk) {
