@@ -1142,19 +1142,71 @@ Original error: ${errorMessage}`);
       
       // If path is provided, we need to get the changes for that specific file
       if (params.path) {
-        const changes = await gitApi.getPullRequestIterationChanges(
-          repositoryId,
-          params.pullRequestId,
-          1, // First iteration
-          this.config.project,
-          1, // iteration number
-          undefined // path parameter is not supported in this API version
-        );
+        // Try to get changes from the latest iteration first, then fallback to iteration 1
+        let changes: any = null;
+        let iterationNumber = 1;
         
-        // Filter changes for the specific file
+        try {
+          // First, get the PR to see how many iterations it has
+          const pullRequest = await gitApi.getPullRequest(
+            repositoryId,
+            params.pullRequestId,
+            this.config.project
+          );
+          
+          console.log('=== DEBUG: PR Info ===');
+          console.log('PR ID:', params.pullRequestId);
+          console.log('PR has iterations:', pullRequest);
+          
+          // Try to get the latest changes (typically from the latest iteration)
+          changes = await gitApi.getPullRequestIterationChanges(
+            repositoryId,
+            params.pullRequestId,
+            iterationNumber,
+            this.config.project
+          );
+          
+          console.log('=== DEBUG: Changes Retrieved ===');
+          console.log('Total change entries:', changes.changeEntries?.length || 0);
+          
+        } catch (error) {
+          console.error('Error getting PR changes:', error);
+          throw error;
+        }
+        
+        // Normalize path for flexible matching (handle both with and without leading slash)
+        const normalizedRequestPath = params.path.startsWith('/') ? params.path : `/${params.path}`;
+        const normalizedRequestPathWithoutSlash = params.path.startsWith('/') ? params.path.substring(1) : params.path;
+        
+        // Debug: Log all available paths for comparison
+        console.log('=== DEBUG: Path Matching ===');
+        console.log('Requested path:', JSON.stringify(params.path));
+        console.log('Normalized with slash:', JSON.stringify(normalizedRequestPath));
+        console.log('Normalized without slash:', JSON.stringify(normalizedRequestPathWithoutSlash));
+        console.log('Available paths in PR:');
+        changes.changeEntries?.forEach((entry: any, index: number) => {
+          console.log(`  ${index + 1}. ${JSON.stringify(entry.item?.path)}`);
+        });
+        console.log('============================');
+        
+        // Filter changes for the specific file with flexible path matching
         const filteredChanges = {
           ...changes,
-          changeEntries: changes.changeEntries?.filter(entry => entry.item?.path === params.path) || []
+          changeEntries: changes.changeEntries?.filter((entry: any) => {
+            if (!entry.item?.path) return false;
+            const entryPath = entry.item.path;
+            // Try exact match, match with leading slash, and match without leading slash
+            const matches = entryPath === params.path || 
+                   entryPath === normalizedRequestPath || 
+                   entryPath === normalizedRequestPathWithoutSlash ||
+                   entryPath === `/${normalizedRequestPathWithoutSlash}`;
+            
+            if (matches) {
+              console.log(`MATCH FOUND: ${JSON.stringify(entryPath)} matches ${JSON.stringify(params.path)}`);
+            }
+            
+            return matches;
+          }) || []
         };
 
         // Enhance with diff content for each change
