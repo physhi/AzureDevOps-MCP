@@ -9,6 +9,9 @@
     "dev": "ts-node src/index.ts",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
+  "bin": {
+    "azuredevops": "dist/index.js"
+  },
   "keywords": [],
   "author": "",
   "license": "ISC",
