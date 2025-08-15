@@ -922,8 +922,20 @@ export class GitService extends AzureDevOpsService {
         this.config.project
       );
 
-      // Find the change entry for the specific file
-      const changeEntry = changes.changeEntries?.find(entry => entry.item?.path === params.path);
+      // Helper function to normalize paths by removing leading slash
+      const normalizePath = (path: string): string => {
+        return path.startsWith('/') ? path.substring(1) : path;
+      };
+
+      // Normalize the request path for consistent matching
+      const normalizedRequestPath = normalizePath(params.path);
+
+      // Find the change entry for the specific file using normalized path matching
+      const changeEntry = changes.changeEntries?.find(entry => {
+        if (!entry.item?.path) return false;
+        const normalizedEntryPath = normalizePath(entry.item.path);
+        return normalizedEntryPath === normalizedRequestPath;
+      });
       if (!changeEntry) {
         // Provide a more helpful error message with available files
         const availableFiles = changes.changeEntries?.map(entry => entry.item?.path).filter((path): path is string => Boolean(path)) || [];
@@ -1160,23 +1172,24 @@ Original error: ${errorMessage}`);
           throw error;
         }
         
-        // Normalize path for flexible matching (handle both with and without leading slash)
-        const normalizedRequestPath = params.path.startsWith('/') ? params.path : `/${params.path}`;
-        const normalizedRequestPathWithoutSlash = params.path.startsWith('/') ? params.path.substring(1) : params.path;
+        // Helper function to normalize paths by removing leading slash
+        const normalizePath = (path: string): string => {
+          return path.startsWith('/') ? path.substring(1) : path;
+        };
         
-        // Filter changes for the specific file with flexible path matching
+        // Normalize the request path for consistent matching
+        const normalizedRequestPath = normalizePath(params.path);
+        
+        // Filter changes for the specific file with improved path matching
         const filteredChanges = {
           ...changes,
           changeEntries: changes.changeEntries?.filter((entry: any) => {
             if (!entry.item?.path) return false;
             const entryPath = entry.item.path;
-            // Try exact match, match with leading slash, and match without leading slash
-            const matches = entryPath === params.path || 
-                   entryPath === normalizedRequestPath || 
-                   entryPath === normalizedRequestPathWithoutSlash ||
-                   entryPath === `/${normalizedRequestPathWithoutSlash}`;
+            const normalizedEntryPath = normalizePath(entryPath);
             
-            return matches;
+            // Compare normalized paths for consistent matching regardless of leading slash
+            return normalizedEntryPath === normalizedRequestPath;
           }) || []
         };
 
@@ -1426,7 +1439,7 @@ Original error: ${errorMessage}`);
     }
     
     // For large files, show a summary instead of all content
-    const maxLinesToShow = 100;
+    const maxLinesToShow = 250;
     const isLargeFile = lines.length > maxLinesToShow;
     
     let diffLines: string[] = [];
