@@ -6,7 +6,11 @@ export interface McpResponse {
     type: "text";
     text: string;
   }>;
-  [key: string]: any; // Add index signature
+  structuredContent?: {
+    format: string;
+    data: any;
+  };
+  [key: string]: any; // Add index signature for backward compatibility
 }
 
 /**
@@ -14,12 +18,13 @@ export interface McpResponse {
  * @param data The data to format
  * @param message Optional message to display (if it contains markdown formatting with --- or tables, it will be used as the primary content)
  * @param isError Whether this is an error response
+ * @param includeStructuredContent Whether to include structuredContent field (MCP standard)
  * @returns MCP-compatible response
  */
-export function formatMcpResponse(data: any, message?: string, isError = false): McpResponse {
+export function formatMcpResponse(data: any, message?: string, isError = false, includeStructuredContent = false): McpResponse {
   // If message contains markdown formatting (starts with --- or contains table markdown), use it as primary content
   if (message && message.length > 120) {
-    return {
+    const response: McpResponse = {
       content: [
         {
           type: "text",
@@ -29,9 +34,19 @@ export function formatMcpResponse(data: any, message?: string, isError = false):
       rawData: data,
       isError
     };
+
+    // Add structured content if requested
+    if (includeStructuredContent && data) {
+      response.structuredContent = {
+        format: "application/json",
+        data: data
+      };
+    }
+
+    return response;
   }
-  
-  return {
+
+  const response: McpResponse = {
     content: [
       {
         type: "text",
@@ -45,6 +60,16 @@ export function formatMcpResponse(data: any, message?: string, isError = false):
     rawData: data,
     isError
   };
+
+  // Add structured content if requested
+  if (includeStructuredContent && data) {
+    response.structuredContent = {
+      format: "application/json",
+      data: data
+    };
+  }
+
+  return response;
 }
 
 /**

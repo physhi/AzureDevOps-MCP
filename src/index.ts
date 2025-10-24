@@ -55,8 +55,8 @@ async function main() {
       }
     );
     
-    allowedTools.has("getWorkItemById") && server.tool("getWorkItemById", 
-      "Get a specific work item by ID",
+    allowedTools.has("getWorkItemById") && server.tool("getWorkItemById",
+      "Get a specific work item by ID with summary and detailed view",
       {
         id: z.number().describe("Work item ID")
       },
@@ -65,13 +65,14 @@ async function main() {
         return {
           content: result.content,
           rawData: result.rawData,
-          isError: result.isError
+          isError: result.isError,
+          structuredContent: result.structuredContent
         };
       }
     );
     
-    allowedTools.has("searchWorkItems") && server.tool("searchWorkItems", 
-      "Search for work items by text",
+    allowedTools.has("searchWorkItems") && server.tool("searchWorkItems",
+      "Search for work items by text with summary and organized results",
       {
         searchText: z.string().describe("Text to search for in work items"),
         top: z.number().optional().describe("Maximum number of work items to return")
@@ -81,7 +82,8 @@ async function main() {
         return {
           content: result.content,
           rawData: result.rawData,
-          isError: result.isError
+          isError: result.isError,
+          structuredContent: result.structuredContent
         };
       }
     );
@@ -118,7 +120,7 @@ async function main() {
       }
     );
     
-    allowedTools.has("createWorkItem") && server.tool("createWorkItem", 
+    allowedTools.has("createWorkItem") && server.tool("createWorkItem",
       "Create a new work item",
       {
         workItemType: z.string().describe("Type of work item to create"),
@@ -135,12 +137,13 @@ async function main() {
         return {
           content: result.content,
           rawData: result.rawData,
-          isError: result.isError
+          isError: result.isError,
+          structuredContent: result.structuredContent
         };
       }
     );
     
-    allowedTools.has("updateWorkItem") && server.tool("updateWorkItem", 
+    allowedTools.has("updateWorkItem") && server.tool("updateWorkItem",
       "Update an existing work item",
       {
         id: z.number().describe("ID of the work item to update"),
@@ -151,12 +154,13 @@ async function main() {
         return {
           content: result.content,
           rawData: result.rawData,
-          isError: result.isError
+          isError: result.isError,
+          structuredContent: result.structuredContent
         };
       }
     );
     
-    allowedTools.has("addWorkItemComment") && server.tool("addWorkItemComment", 
+    allowedTools.has("addWorkItemComment") && server.tool("addWorkItemComment",
       "Add a comment to a work item",
       {
         id: z.number().describe("ID of the work item"),
@@ -167,7 +171,8 @@ async function main() {
         return {
           content: result.content,
           rawData: result.rawData,
-          isError: result.isError
+          isError: result.isError,
+          structuredContent: result.structuredContent
         };
       }
     );
@@ -205,7 +210,7 @@ async function main() {
       }
     );
     
-    allowedTools.has("createLink") && server.tool("createLink", 
+    allowedTools.has("createLink") && server.tool("createLink",
       "Create a link between work items",
       {
         sourceId: z.number().describe("ID of the source work item"),
@@ -218,7 +223,8 @@ async function main() {
         return {
           content: result.content,
           rawData: result.rawData,
-          isError: result.isError
+          isError: result.isError,
+          structuredContent: result.structuredContent
         };
       }
     );
@@ -685,8 +691,8 @@ async function main() {
       }
     );
     
-    allowedTools.has("getFileContent") && server.tool("getFileContent", 
-      "Retrieve the raw text content of a specific file from a Git repository. Returns the file content as a string. Useful for examining code, configuration files, or any text-based content stored in the repository. Optionally specify a branch, tag, or commit to retrieve file content from a specific version. Supports both repository names and IDs.",
+    allowedTools.has("getFileContent") && server.tool("getFileContent",
+      "Retrieve the content of a specific file from a Git repository with line numbers for easy reference. Returns formatted content with metadata including file size, line count, and truncation status. Files larger than 250 lines are automatically truncated with a suggestion to use getFileContentRanged for specific sections. Optionally specify a branch, tag, or commit to retrieve file content from a specific version. Supports both repository names and IDs.",
       {
         repository: z.string().describe("The repository name (e.g., 'MyProject') or ID (GUID) containing the file. Repository names are case-insensitive."),
         path: z.string().describe("The full path to the file within the repository, including filename and extension (e.g., 'src/utils/helpers.js')."),
@@ -701,13 +707,14 @@ async function main() {
         return {
           content: result.content,
           rawData: result.rawData,
-          isError: result.isError
+          isError: result.isError,
+          structuredContent: result.structuredContent
         };
       }
     );
     
-    allowedTools.has("getCommitHistory") && server.tool("getCommitHistory", 
-      "Retrieve the commit history for a Git repository, showing a chronological list of commits with their metadata (ID, author, date, message). Optionally filter to commits affecting a specific file path and use pagination to handle repositories with extensive history. Supports both repository names and IDs.",
+    allowedTools.has("getCommitHistory") && server.tool("getCommitHistory",
+      "Retrieve the commit history for a Git repository with metadata (ID, author, date, message, file changes). Returns a chronological list of commits with summary statistics at the top. Optionally filter to commits affecting a specific file path and use pagination to handle repositories with extensive history. Supports both repository names and IDs.",
       {
         repository: z.string().describe("The repository name (e.g., 'MyProject') or ID (GUID) to get history for. Repository names are case-insensitive."),
         itemPath: z.string().optional().describe("Optional path to a specific file or folder to filter commits to only those that modified the specified path."),
@@ -720,13 +727,14 @@ async function main() {
         return {
           content: result.content,
           rawData: result.rawData,
-          isError: result.isError
+          isError: result.isError,
+          structuredContent: result.structuredContent
         };
       }
     );
     
-    allowedTools.has("listPullRequests") && server.tool("listPullRequests", 
-      "Retrieve a list of pull requests in a Git repository with comprehensive filtering options. Returns pull request details including ID, title, description, creator, reviewers, and status. Filter by status, creator, or reviewer to find specific PRs. Supports both repository names and IDs.",
+    allowedTools.has("listPullRequests") && server.tool("listPullRequests",
+      "Retrieve a list of pull requests in a Git repository with comprehensive filtering options. Returns a concise table with PR details including ID, title, author, status, and branches, along with a summary of PRs by status. Filter by status, creator, or reviewer to find specific PRs. Supports both repository names and IDs.",
       {
         repository: z.string().describe("The repository name (e.g., 'MyProject') or ID (GUID) to list pull requests from. Repository names are case-insensitive."),
         status: z.enum(['abandoned', 'active', 'all', 'completed', 'notSet']).optional().describe("Filter pull requests by their current status: 'active' for open PRs, 'completed' for merged PRs, 'abandoned' for closed/rejected PRs, 'all' for all PRs regardless of status."),
@@ -740,7 +748,8 @@ async function main() {
         return {
           content: result.content,
           rawData: result.rawData,
-          isError: result.isError
+          isError: result.isError,
+          structuredContent: result.structuredContent
         };
       }
     );
@@ -781,8 +790,8 @@ async function main() {
       }
     );
     
-    allowedTools.has("getPullRequestComments") && server.tool("getPullRequestComments", 
-      "Retrieve all comment threads and associated comments for a pull request. Returns both general PR comments and code review comments with their context. Optionally filter to a specific thread by ID or use pagination for PRs with extensive discussions. Supports both repository names and IDs.",
+    allowedTools.has("getPullRequestComments") && server.tool("getPullRequestComments",
+      "Retrieve all comment threads and associated comments for a pull request. Returns a summary and organized list of threads including code review comments (with file/line context) and general discussions. Optionally filter to a specific thread by ID or use pagination for PRs with extensive discussions. Supports both repository names and IDs.",
       {
         repository: z.string().describe("The repository name (e.g., 'MyProject') or ID (GUID) containing the pull request. Repository names are case-insensitive."),
         pullRequestId: z.number().describe("The numeric ID of the pull request to retrieve comments from. This is the PR number shown in the Azure DevOps UI."),
@@ -795,7 +804,8 @@ async function main() {
         return {
           content: result.content,
           rawData: result.rawData,
-          isError: result.isError
+          isError: result.isError,
+          structuredContent: result.structuredContent
         };
       }
     );
@@ -927,7 +937,7 @@ async function main() {
     );
 
     allowedTools.has("getAllPullRequestChanges") && server.tool("getAllPullRequestChanges",
-      "Retrieve a comprehensive list of all file changes in a pull request with pagination support. Returns detailed information about each changed file including the change type, file path, and content identifiers. Use pagination parameters to handle large PRs with many file changes.",
+      "Retrieve a comprehensive list of all file changes in a pull request with pagination support. Returns a summary and table of changed files with change types. Use pagination parameters (top/skip) to handle large PRs with many file changes. This does NOT include diff content - use getPullRequestFileChanges for detailed diffs.",
       {
         repository: z.string().describe("The repository name (e.g., 'MyProject') or ID (GUID) containing the pull request. Repository names are case-insensitive."),
         pullRequestId: z.number().describe("The numeric ID of the pull request to retrieve changes for. This is the PR number shown in the Azure DevOps UI."),
@@ -939,7 +949,8 @@ async function main() {
         return {
           content: result.content,
           rawData: result.rawData,
-          isError: result.isError
+          isError: result.isError,
+          structuredContent: result.structuredContent
         };
       }
     );
@@ -1623,6 +1634,7 @@ async function main() {
         return {
           content: result.content,
           rawData: result.rawData,
+          structuredContent: result.structuredContent
         };
       }
     );
@@ -1641,6 +1653,7 @@ async function main() {
         return {
           content: result.content,
           rawData: result.rawData,
+          structuredContent: result.structuredContent
         };
       }
     );
@@ -1658,6 +1671,7 @@ async function main() {
         return {
           content: result.content,
           rawData: result.rawData,
+          structuredContent: result.structuredContent
         };
       }
     );
@@ -1675,6 +1689,7 @@ async function main() {
         return {
           content: result.content,
           rawData: result.rawData,
+          structuredContent: result.structuredContent
         };
       }
     );
@@ -1692,6 +1707,7 @@ async function main() {
         return {
           content: result.content,
           rawData: result.rawData,
+          structuredContent: result.structuredContent
         };
       }
     );
@@ -1708,6 +1724,7 @@ async function main() {
         return {
           content: result.content,
           rawData: result.rawData,
+          structuredContent: result.structuredContent
         };
       }
     );
@@ -1725,6 +1742,7 @@ async function main() {
         return {
           content: result.content,
           rawData: result.rawData,
+          structuredContent: result.structuredContent
         };
       }
     );
@@ -1741,6 +1759,7 @@ async function main() {
         return {
           content: result.content,
           rawData: result.rawData,
+          structuredContent: result.structuredContent
         };
       }
     );
@@ -1756,6 +1775,7 @@ async function main() {
         return {
           content: result.content,
           rawData: result.rawData,
+          structuredContent: result.structuredContent
         };
       }
     );
@@ -1773,6 +1793,7 @@ async function main() {
         return {
           content: result.content,
           rawData: result.rawData,
+          structuredContent: result.structuredContent
         };
       }
     );
@@ -1788,6 +1809,7 @@ async function main() {
         return {
           content: result.content,
           rawData: result.rawData,
+          structuredContent: result.structuredContent
         };
       }
     );
@@ -1804,6 +1826,7 @@ async function main() {
         return {
           content: result.content,
           rawData: result.rawData,
+          structuredContent: result.structuredContent
         };
       }
     );

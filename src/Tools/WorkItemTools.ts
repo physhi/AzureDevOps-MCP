@@ -50,7 +50,7 @@ export class WorkItemTools {
   }
 
   /**
-   * Format work item response with enhanced readability and effort tracking
+   * Format work item response with optimized token usage
    */
   private formatWorkItemResponse(workItem: any): McpResponse {
     if (!workItem) {
@@ -64,33 +64,16 @@ export class WorkItemTools {
       };
     }
 
-    // Helper function to format dates
+    // Helper function to format dates (simplified)
     const formatDate = (dateString: string): string => {
       if (!dateString) return 'Not set';
-      
       try {
         const date = new Date(dateString);
         const now = new Date();
         const diffMs = now.getTime() - date.getTime();
         const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
-        const diffHours = Math.floor(diffMs / (1000 * 60 * 60));
-
-        let timeAgo = '';
-        if (diffDays > 0) {
-          timeAgo = `${diffDays} day${diffDays > 1 ? 's' : ''} ago`;
-        } else if (diffHours > 0) {
-          timeAgo = `${diffHours} hour${diffHours > 1 ? 's' : ''} ago`;
-        } else {
-          timeAgo = 'Recently';
-        }
-
-        const formatted = date.toLocaleDateString('en-US', { 
-          year: 'numeric', 
-          month: 'short', 
-          day: 'numeric'
-        });
-
-        return `${formatted} (${timeAgo})`;
+        const formatted = date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+        return `${formatted} (${diffDays}d ago)`;
       } catch {
         return dateString;
       }
@@ -143,37 +126,13 @@ export class WorkItemTools {
       return `${hours}h`;
     };
 
-    // Helper function to calculate effort progress
-    const calculateProgress = (original: number, completed: number, remaining: number): { percentage: number, status: string } => {
-      if (!original || original === 0) {
-        if (completed > 0) {
-          return { percentage: 100, status: 'Over budget' };
-        }
-        return { percentage: 0, status: 'Not estimated' };
-      }
-
-      const totalSpent = completed + remaining;
-      const percentage = Math.round((completed / original) * 100);
-      
-      let status = 'On track';
-      if (totalSpent > original * 1.2) {
-        status = 'Over budget';
-      } else if (percentage >= 100) {
-        status = 'Complete';
-      } else if (totalSpent > original) {
-        status = 'Slightly over';
-      }
-
-      return { percentage: Math.min(percentage, 100), status };
-    };
-
     // Helper function to parse and format description
     const formatDescription = (description: string): string => {
       if (!description) return 'No description provided';
-      
+
       // Remove HTML tags for basic cleanup
       let cleanDesc = description.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
-      
+
       // Look for acceptance criteria patterns
       const acMatch = cleanDesc.match(/acceptance criteria:?\s*(.*?)(?:\n\n|\*\*|$)/i);
       if (acMatch) {
@@ -184,187 +143,143 @@ export class WorkItemTools {
           return cleanDesc.substring(0, 200) + (cleanDesc.length > 200 ? '...' : '');
         }
       }
-      
+
       // Truncate if too long
       return cleanDesc.length > 300 ? cleanDesc.substring(0, 300) + '...' : cleanDesc;
     };
 
-    // Helper function to format sprint information
+    // Helper function to format sprint information (inline)
     const formatSprintInfo = (iterationPath: string): string => {
-      if (!iterationPath) return 'No sprint assigned';
-      
+      if (!iterationPath) return '📅 No sprint';
       const parts = iterationPath.split('\\');
       const sprint = parts[parts.length - 1];
-      
-      // Check if it's a sprint pattern
-      if (sprint.toLowerCase().includes('sprint')) {
-        return `🏃‍♂️ ${sprint}`;
-      }
-      
-      return `📅 ${sprint}`;
+      return sprint.toLowerCase().includes('sprint') ? `🏃‍♂️ ${sprint}` : `📅 ${sprint}`;
     };
 
-    // Generate the main work item display
+    // Generate the main work item display with summary at top
     const emoji = getWorkItemTypeEmoji(workItem.workItemType);
     const stateEmoji = getStateEmoji(workItem.state);
     const priorityEmoji = getPriorityEmoji(workItem.priority);
 
-    let result = `## ${emoji} ${workItem.workItemType} #${workItem.id}\n\n`;
+    let result = `## Work Item #${workItem.id}\n\n`;
+
+    // One-line summary with key info
+    result += `**${emoji} ${workItem.workItemType}** | ${stateEmoji} ${workItem.state} | ${priorityEmoji} P${workItem.priority || '?'} | `;
+    result += `👤 ${workItem.assignedTo?.displayName || 'Unassigned'} | `;
+    result += `${formatSprintInfo(workItem.iterationPath)}\n\n`;
+
     result += `# ${workItem.title}\n\n`;
 
-    // Status and metadata table
-    result += `| Property | Value |\n`;
-    result += `|----------|-------|\n`;
-    result += `| **Status** | ${stateEmoji} **${workItem.state}** |\n`;
-    result += `| **Priority** | ${priorityEmoji} ${workItem.priority ? `Priority ${workItem.priority}` : 'Not set'} |\n`;
-    result += `| **Area** | ${workItem.areaPath || 'Not set'} |\n`;
-    result += `| **Sprint** | ${formatSprintInfo(workItem.iterationPath)} |\n`;
+    // Metadata: one-line format instead of table
+    const createdBy = workItem.createdBy?.displayName || 'Unknown';
+    const createdDate = formatDate(workItem.createdDate);
+    const updatedDate = formatDate(workItem.changedDate);
+    result += `**Area:** ${workItem.areaPath || 'Not set'} | **Created:** ${createdDate} by ${createdBy} | **Updated:** ${updatedDate}\n\n`;
+    result += `---\n\n`;
 
-    // People information
-    if (workItem.assignedTo) {
-      result += `| **Assigned To** | 👤 ${workItem.assignedTo.displayName} |\n`;
-    } else {
-      result += `| **Assigned To** | ⭕ *Unassigned* |\n`;
-    }
-    
-    if (workItem.createdBy) {
-      result += `| **Created By** | 👨‍💻 ${workItem.createdBy.displayName} |\n`;
-    }
-
-    // Dates
-    result += `| **Created** | ${formatDate(workItem.createdDate)} |\n`;
-    result += `| **Last Updated** | ${formatDate(workItem.changedDate)} |\n`;
-
-    result += `\n`;
-
-    // Effort Tracking Section
+    // Effort Tracking Section (condensed from 3 tables to inline stats)
     const hasEffortData = workItem.originalEstimate || workItem.completedWork || workItem.remainingWork;
     const hasChildEffort = workItem.childEffortRollup;
-    
+
     if (hasEffortData || hasChildEffort) {
-      result += `## ⏱️ Effort Tracking\n\n`;
-      
+      result += `### ⏱️ Effort\n\n`;
+
       if (hasEffortData) {
         const original = workItem.originalEstimate || 0;
         const completed = workItem.completedWork || 0;
         const remaining = workItem.remainingWork || 0;
-        const progress = calculateProgress(original, completed, remaining);
-
-        result += `### 📊 Direct Effort\n\n`;
-        result += `| Metric | Value | Progress |\n`;
-        result += `|--------|-------|---------|\n`;
-        result += `| **Original Estimate** | ${formatEffort(original)} | 📊 Baseline |\n`;
-        result += `| **Completed Work** | ${formatEffort(completed)} | ✅ ${progress.percentage}% |\n`;
-        result += `| **Remaining Work** | ${formatEffort(remaining)} | ⏳ To do |\n`;
-        result += `| **Total Effort** | ${formatEffort(completed + remaining)} | 📈 ${progress.status} |\n`;
-
-        // Progress bar visualization
-        const progressBars = Math.floor(progress.percentage / 10);
-        const progressBar = '█'.repeat(progressBars) + '░'.repeat(10 - progressBars);
-        result += `\n**Progress:** \`${progressBar}\` ${progress.percentage}%\n\n`;
+        const percentage = original > 0 ? Math.round((completed / original) * 100) : 0;
+        result += `**Direct:** ${formatEffort(completed)}/${formatEffort(original)} done (${percentage}%) | ${formatEffort(remaining)} remaining\n`;
       }
 
-      // Child effort roll-up section
       if (hasChildEffort) {
         const rollup = workItem.childEffortRollup;
-        const childProgress = calculateProgress(rollup.totalOriginalEstimate, rollup.totalCompletedWork, rollup.totalRemainingWork);
-        
-        result += `### 📈 Child Work Items Roll-up (${rollup.childCount} items)\n\n`;
-        result += `| Metric | Value | Status |\n`;
-        result += `|--------|-------|---------|\n`;
-        result += `| **Total Original Estimate** | ${formatEffort(rollup.totalOriginalEstimate)} | 🎯 Planned |\n`;
-        result += `| **Total Completed Work** | ${formatEffort(rollup.totalCompletedWork)} | ✅ Done |\n`;
-        result += `| **Total Remaining Work** | ${formatEffort(rollup.totalRemainingWork)} | ⏳ Pending |\n`;
-        result += `| **Total Effort** | ${formatEffort(rollup.totalCompletedWork + rollup.totalRemainingWork)} | 📊 ${childProgress.status} |\n`;
-
-        // Child progress bar
-        const childProgressBars = Math.floor(childProgress.percentage / 10);
-        const childProgressBar = '█'.repeat(childProgressBars) + '░'.repeat(10 - childProgressBars);
-        result += `\n**Child Progress:** \`${childProgressBar}\` ${childProgress.percentage}%\n\n`;
-
-        // Child work items breakdown
-        if (rollup.childDetails && rollup.childDetails.length > 0) {
-          result += `#### 📋 Child Work Items Breakdown\n\n`;
-          rollup.childDetails.forEach((child: any) => {
-            const childEmoji = getWorkItemTypeEmoji(child.workItemType);
-            const childStateEmoji = getStateEmoji(child.state);
-            const childTotal = (child.completedWork || 0) + (child.remainingWork || 0);
-            
-            result += `- ${childEmoji} **#${child.id}** ${child.title}\n`;
-            result += `  - ${childStateEmoji} *${child.state}* | `;
-            result += `📊 ${formatEffort(child.originalEstimate)} estimated | `;
-            result += `✅ ${formatEffort(child.completedWork)} done | `;
-            result += `⏳ ${formatEffort(child.remainingWork)} remaining\n\n`;
-          });
-        }
-
-        // Combined effort summary if both direct and child effort exist
-        if (hasEffortData) {
-          const combinedOriginal = (workItem.originalEstimate || 0) + rollup.totalOriginalEstimate;
-          const combinedCompleted = (workItem.completedWork || 0) + rollup.totalCompletedWork;
-          const combinedRemaining = (workItem.remainingWork || 0) + rollup.totalRemainingWork;
-          const combinedProgress = calculateProgress(combinedOriginal, combinedCompleted, combinedRemaining);
-
-          result += `### 🎯 Combined Effort Summary\n\n`;
-          result += `| Metric | Direct | Children | **Total** |\n`;
-          result += `|--------|--------|----------|-----------|\n`;
-          result += `| **Original** | ${formatEffort(workItem.originalEstimate || 0)} | ${formatEffort(rollup.totalOriginalEstimate)} | **${formatEffort(combinedOriginal)}** |\n`;
-          result += `| **Completed** | ${formatEffort(workItem.completedWork || 0)} | ${formatEffort(rollup.totalCompletedWork)} | **${formatEffort(combinedCompleted)}** |\n`;
-          result += `| **Remaining** | ${formatEffort(workItem.remainingWork || 0)} | ${formatEffort(rollup.totalRemainingWork)} | **${formatEffort(combinedRemaining)}** |\n`;
-          
-          const combinedProgressBars = Math.floor(combinedProgress.percentage / 10);
-          const combinedProgressBar = '█'.repeat(combinedProgressBars) + '░'.repeat(10 - combinedProgressBars);
-          result += `\n**Overall Progress:** \`${combinedProgressBar}\` ${combinedProgress.percentage}% (${combinedProgress.status})\n\n`;
-        }
+        const childPercentage = rollup.totalOriginalEstimate > 0
+          ? Math.round((rollup.totalCompletedWork / rollup.totalOriginalEstimate) * 100)
+          : 0;
+        result += `**Children (${rollup.childCount}):** ${formatEffort(rollup.totalCompletedWork)}/${formatEffort(rollup.totalOriginalEstimate)} done (${childPercentage}%) | ${formatEffort(rollup.totalRemainingWork)} remaining\n`;
       }
+
+      // Combined summary if both exist
+      if (hasEffortData && hasChildEffort) {
+        const combinedOriginal = (workItem.originalEstimate || 0) + workItem.childEffortRollup.totalOriginalEstimate;
+        const combinedCompleted = (workItem.completedWork || 0) + workItem.childEffortRollup.totalCompletedWork;
+        const combinedRemaining = (workItem.remainingWork || 0) + workItem.childEffortRollup.totalRemainingWork;
+        const combinedPercentage = combinedOriginal > 0
+          ? Math.round((combinedCompleted / combinedOriginal) * 100)
+          : 0;
+        result += `**Total:** ${formatEffort(combinedCompleted)}/${formatEffort(combinedOriginal)} done (${combinedPercentage}%) | ${formatEffort(combinedRemaining)} remaining\n`;
+      }
+
+      result += `\n---\n\n`;
     }
 
-    // Relationships section
+    // Relationships section (concise list instead of detailed breakdown)
     if (workItem.relations && workItem.relations.length > 0) {
-      result += `## 🔗 Related Work Items\n\n`;
-      
+      result += `### 🔗 Related Items\n\n`;
+
+      // Group by relationship type
+      const grouped: { [key: string]: number[] } = {};
+      workItem.relations.forEach((relation: any) => {
+        const relType = relation.relationshipType || 'Related';
+        if (!grouped[relType]) grouped[relType] = [];
+        grouped[relType].push(relation.relatedWorkItemId);
+      });
+
       const relationTypes: { [key: string]: string } = {
         'System.LinkTypes.Hierarchy-Forward': '⬇️ Child',
         'System.LinkTypes.Hierarchy-Reverse': '⬆️ Parent',
         'System.LinkTypes.Dependency-Forward': '➡️ Successor',
         'System.LinkTypes.Dependency-Reverse': '⬅️ Predecessor',
-        'System.LinkTypes.Related': '🔄 Related',
-        'Microsoft.VSTS.Common.TestedBy-Forward': '🧪 Tested by',
-        'Microsoft.VSTS.Common.TestedBy-Reverse': '🧪 Tests'
+        'System.LinkTypes.Related': '🔄 Related'
       };
 
-      workItem.relations.forEach((relation: any) => {
-        const relationEmoji = relationTypes[relation.relationshipType] || '🔗';
-        result += `- ${relationEmoji} **Work Item #${relation.relatedWorkItemId}**`;
-        if (relation.comment) {
-          result += ` - *${relation.comment}*`;
-        }
-        result += `\n`;
+      Object.entries(grouped).forEach(([relType, ids]) => {
+        const label = relationTypes[relType]?.split(' ')[1] || 'Related';
+        const emojiPart = relationTypes[relType]?.split(' ')[0] || '🔗';
+        const idList = ids.map(id => `#${id}`).join(', ');
+        result += `- ${emojiPart} ${idList} (${label})\n`;
       });
-      result += `\n`;
+
+      result += `\n---\n\n`;
     }
 
     // Description section
     result += `## 📝 Description\n\n`;
     result += `${formatDescription(workItem.description)}\n\n`;
 
-    // Technical details section
-    result += `## 🔧 Technical Details\n\n`;
-    result += `- **Work Item ID:** ${workItem.id}\n`;
-    result += `- **Revision:** ${workItem.rev}\n`;
-    result += `- **Work Item Type:** ${workItem.workItemType}\n`;
-    if (workItem.originalEstimate || workItem.completedWork || workItem.remainingWork) {
-      result += `- **Effort Summary:** ${formatEffort(workItem.completedWork || 0)} completed of ${formatEffort(workItem.originalEstimate || 0)} estimated\n`;
-    }
-
-    return {
-      content: [
-        {
-          type: "text",
-          text: result
-        }
-      ]
+    // Prepare structured content
+    const structuredData = {
+      id: workItem.id,
+      type: workItem.workItemType,
+      title: workItem.title,
+      state: workItem.state,
+      priority: workItem.priority,
+      assignedTo: workItem.assignedTo?.displayName,
+      createdBy: workItem.createdBy?.displayName,
+      createdDate: workItem.createdDate,
+      changedDate: workItem.changedDate,
+      areaPath: workItem.areaPath,
+      iterationPath: workItem.iterationPath,
+      effort: {
+        original: workItem.originalEstimate,
+        completed: workItem.completedWork,
+        remaining: workItem.remainingWork
+      },
+      childEffort: hasChildEffort ? {
+        childCount: workItem.childEffortRollup.childCount,
+        totalOriginal: workItem.childEffortRollup.totalOriginalEstimate,
+        totalCompleted: workItem.childEffortRollup.totalCompletedWork,
+        totalRemaining: workItem.childEffortRollup.totalRemainingWork
+      } : null,
+      relations: workItem.relations?.map((r: any) => ({
+        type: r.relationshipType,
+        relatedId: r.relatedWorkItemId
+      })) || [],
+      description: workItem.description
     };
+
+    return formatMcpResponse(structuredData, result, false, true);
   }
 
   /**
@@ -381,7 +296,7 @@ export class WorkItemTools {
   }
 
   /**
-   * Format search results response with comprehensive tabular view
+   * Format search results response with optimized tabular view
    */
   private formatSearchResultsResponse(results: any): McpResponse {
     if (!results || !results.workItems || results.workItems.length === 0) {
@@ -395,27 +310,14 @@ export class WorkItemTools {
       };
     }
 
-    // Helper functions from the detailed work item formatter
+    // Helper functions
     const formatDate = (dateString: string): string => {
-      if (!dateString) return 'Not set';
-      
+      if (!dateString) return 'Unknown';
       try {
         const date = new Date(dateString);
         const now = new Date();
-        const diffMs = now.getTime() - date.getTime();
-        const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
-        const diffHours = Math.floor(diffMs / (1000 * 60 * 60));
-
-        let timeAgo = '';
-        if (diffDays > 0) {
-          timeAgo = `${diffDays}d ago`;
-        } else if (diffHours > 0) {
-          timeAgo = `${diffHours}h ago`;
-        } else {
-          timeAgo = 'Recent';
-        }
-
-        return timeAgo;
+        const diffDays = Math.floor((now.getTime() - date.getTime()) / (1000 * 60 * 60 * 24));
+        return `${diffDays}d ago`;
       } catch {
         return 'Unknown';
       }
@@ -450,14 +352,6 @@ export class WorkItemTools {
       return stateMap[state] || '📌';
     };
 
-    const getPriorityEmoji = (priority: number): string => {
-      if (priority === 1) return '🔴';
-      if (priority === 2) return '🟡';
-      if (priority === 3) return '🟢';
-      if (priority === 4) return '🔵';
-      return '⚪';
-    };
-
     const formatEffort = (hours: number | null | undefined): string => {
       if (!hours || hours === 0) return '-';
       if (hours < 1) return `${Math.round(hours * 60)}m`;
@@ -469,106 +363,96 @@ export class WorkItemTools {
       return title.length > maxLength ? title.substring(0, maxLength) + '...' : title;
     };
 
-    // Generate search results header
-    let result = `## 🔍 Search Results: "${results.searchQuery}"\n\n`;
-    result += `**Found:** ${results.totalResults} items | **Showing:** ${results.returnedResults} items\n\n`;
-
-    // Main results table
-    result += `| Type | ID | Title | Status | Assigned | Priority | Effort | Updated |\n`;
-    result += `|------|----|----|--------|----------|----------|--------|----------|\n`;
-
-    results.workItems.forEach((workItem: any) => {
-      const typeEmoji = getWorkItemTypeEmoji(workItem.workItemType);
-      const stateEmoji = getStateEmoji(workItem.state);
-      const priorityEmoji = getPriorityEmoji(workItem.priority);
-      const assignedTo = workItem.assignedTo ? workItem.assignedTo.displayName.split(' ')[0] : 'Unassigned';
-      const effortInfo = workItem.originalEstimate || workItem.completedWork || workItem.remainingWork 
-        ? `${formatEffort(workItem.completedWork)}/${formatEffort(workItem.originalEstimate)}`
-        : '-';
-      
-      result += `| ${typeEmoji} ${workItem.workItemType} | **#${workItem.id}** | ${truncateTitle(workItem.title)} | ${stateEmoji} ${workItem.state} | ${assignedTo} | ${priorityEmoji} | ${effortInfo} | ${formatDate(workItem.changedDate)} |\n`;
-    });
-
-    result += `\n`;
-
-    // Summary by work item type
+    // Calculate summary statistics upfront
     const typeSummary = results.workItems.reduce((acc: any, item: any) => {
       acc[item.workItemType] = (acc[item.workItemType] || 0) + 1;
       return acc;
     }, {});
 
-    result += `### 📊 Summary by Type\n\n`;
-    Object.entries(typeSummary).forEach(([type, count]) => {
-      const emoji = getWorkItemTypeEmoji(type);
-      result += `- ${emoji} **${type}**: ${count} items\n`;
-    });
-
-    // Summary by state
     const stateSummary = results.workItems.reduce((acc: any, item: any) => {
       acc[item.state] = (acc[item.state] || 0) + 1;
       return acc;
     }, {});
 
-    result += `\n### 📈 Summary by Status\n\n`;
-    Object.entries(stateSummary).forEach(([state, count]) => {
-      const emoji = getStateEmoji(state);
-      result += `- ${emoji} **${state}**: ${count} items\n`;
+    const totalEffort = {
+      original: results.workItems.reduce((sum: number, i: any) => sum + (i.originalEstimate || 0), 0),
+      completed: results.workItems.reduce((sum: number, i: any) => sum + (i.completedWork || 0), 0)
+    };
+
+    // Compact type/status lists
+    const typeList = Object.entries(typeSummary)
+      .map(([type, count]) => `${count} ${type.toLowerCase()}${(count as number) === 1 ? '' : 's'}`)
+      .join(', ');
+    const statusList = Object.entries(stateSummary)
+      .map(([state, count]) => `${count} ${state.toLowerCase()}`)
+      .join(', ');
+
+    // START WITH SUMMARY AT TOP
+    let result = `## Search Results: "${results.searchQuery}"\n\n`;
+    result += `**${results.totalResults} items** | ${typeList} | ${statusList}`;
+    if (totalEffort.completed > 0) {
+      result += ` | **${formatEffort(totalEffort.completed)}/${formatEffort(totalEffort.original)}** completed`;
+    }
+    result += `\n\n---\n\n`;
+
+    // Simplified 5-column table (was 8 columns)
+    result += `| ID | Title | Type | Status | Assigned |\n`;
+    result += `|----|-------|------|--------|----------|\n`;
+
+    results.workItems.forEach((workItem: any) => {
+      const typeEmoji = getWorkItemTypeEmoji(workItem.workItemType);
+      const stateEmoji = getStateEmoji(workItem.state);
+      const assignedTo = workItem.assignedTo?.displayName.split(' ')[0] || 'Unassigned';
+
+      result += `| **#${workItem.id}** | ${truncateTitle(workItem.title)} | ${typeEmoji} ${workItem.workItemType} | ${stateEmoji} ${workItem.state} | ${assignedTo} |\n`;
     });
 
-    // Recent activity (most recently updated items)
-    const recentItems = results.workItems
-      .sort((a: any, b: any) => new Date(b.changedDate).getTime() - new Date(a.changedDate).getTime())
-      .slice(0, 5);
+    result += `\n---\n\n`;
 
-    result += `\n### ⏰ Recently Updated\n\n`;
-    recentItems.forEach((item: any) => {
-      const typeEmoji = getWorkItemTypeEmoji(item.workItemType);
-      const stateEmoji = getStateEmoji(item.state);
-      result += `- ${typeEmoji} **#${item.id}** ${truncateTitle(item.title, 40)} ${stateEmoji} *${formatDate(item.changedDate)}*\n`;
-    });
-
-    // High priority items if any
+    // High priority items (one line)
     const highPriorityItems = results.workItems.filter((item: any) => item.priority && item.priority <= 2);
     if (highPriorityItems.length > 0) {
-      result += `\n### 🚨 High Priority Items\n\n`;
-      highPriorityItems.forEach((item: any) => {
-        const typeEmoji = getWorkItemTypeEmoji(item.workItemType);
-        const priorityEmoji = getPriorityEmoji(item.priority);
-        const stateEmoji = getStateEmoji(item.state);
-        result += `- ${priorityEmoji} ${typeEmoji} **#${item.id}** ${truncateTitle(item.title, 40)} ${stateEmoji}\n`;
-      });
+      const highPriorityIds = highPriorityItems.map((i: any) => `#${i.id}`).join(', ');
+      result += `**High Priority:** ${highPriorityIds} (${highPriorityItems.length} items)\n`;
     }
 
-    // Effort summary if any items have effort tracking
-    const itemsWithEffort = results.workItems.filter((item: any) => 
-      item.originalEstimate || item.completedWork || item.remainingWork
-    );
+    // Recently updated (one line, top 3)
+    const recentItems = results.workItems
+      .sort((a: any, b: any) => new Date(b.changedDate).getTime() - new Date(a.changedDate).getTime())
+      .slice(0, 3);
+    const recentList = recentItems.map((i: any) => `#${i.id} (${formatDate(i.changedDate)})`).join(', ');
+    result += `**Recently Updated:** ${recentList}\n\n`;
 
-    if (itemsWithEffort.length > 0) {
-      const totalOriginal = itemsWithEffort.reduce((sum: number, item: any) => sum + (item.originalEstimate || 0), 0);
-      const totalCompleted = itemsWithEffort.reduce((sum: number, item: any) => sum + (item.completedWork || 0), 0);
-      const totalRemaining = itemsWithEffort.reduce((sum: number, item: any) => sum + (item.remainingWork || 0), 0);
-
-      result += `\n### ⏱️ Effort Summary (${itemsWithEffort.length} items with tracking)\n\n`;
-      result += `| Metric | Value |\n`;
-      result += `|--------|-------|\n`;
-      result += `| **Total Estimated** | ${formatEffort(totalOriginal)} |\n`;
-      result += `| **Total Completed** | ${formatEffort(totalCompleted)} |\n`;
-      result += `| **Total Remaining** | ${formatEffort(totalRemaining)} |\n`;
-    }
-
-    // Instructions for getting more details
-    result += `\n---\n`;
+    result += `---\n`;
     result += `💡 **Tip:** Use \`getWorkItemById\` with any ID above to see full details, effort tracking, and relationships.\n`;
 
-    return {
-      content: [
-        {
-          type: "text",
-          text: result
-        }
-      ]
+    // Prepare structured content
+    const structuredData = {
+      searchQuery: results.searchQuery,
+      totalResults: results.totalResults,
+      returnedResults: results.returnedResults,
+      workItems: results.workItems.map((item: any) => ({
+        id: item.id,
+        type: item.workItemType,
+        title: item.title,
+        state: item.state,
+        priority: item.priority,
+        assignedTo: item.assignedTo?.displayName,
+        effort: {
+          original: item.originalEstimate,
+          completed: item.completedWork,
+          remaining: item.remainingWork
+        },
+        changedDate: item.changedDate
+      })),
+      summary: {
+        byType: typeSummary,
+        byStatus: stateSummary,
+        effort: totalEffort
+      }
     };
+
+    return formatMcpResponse(structuredData, result, false, true);
   }
 
   /**
@@ -603,7 +487,7 @@ export class WorkItemTools {
   public async createWorkItem(params: CreateWorkItemParams): Promise<McpResponse> {
     try {
       const workItem = await this.workItemService.createWorkItem(params);
-      return formatMcpResponse(workItem, `Created work item: ${workItem.id}`);
+      return formatMcpResponse(workItem, `Created work item: ${workItem.id}`, false, true);
     } catch (error) {
       console.error('Error in createWorkItem tool:', error);
       return formatErrorResponse(error);
@@ -616,7 +500,7 @@ export class WorkItemTools {
   public async updateWorkItem(params: UpdateWorkItemParams): Promise<McpResponse> {
     try {
       const workItem = await this.workItemService.updateWorkItem(params);
-      return formatMcpResponse(workItem, `Updated work item: ${params.id}`);
+      return formatMcpResponse(workItem, `Updated work item: ${params.id}`, false, true);
     } catch (error) {
       console.error('Error in updateWorkItem tool:', error);
       return formatErrorResponse(error);
@@ -629,7 +513,7 @@ export class WorkItemTools {
   public async addWorkItemComment(params: AddWorkItemCommentParams): Promise<McpResponse> {
     try {
       const comment = await this.workItemService.addWorkItemComment(params);
-      return formatMcpResponse(comment, `Comment added to work item: ${params.id}`);
+      return formatMcpResponse(comment, `Comment added to work item: ${params.id}`, false, true);
     } catch (error) {
       console.error('Error in addWorkItemComment tool:', error);
       return formatErrorResponse(error);
@@ -668,7 +552,7 @@ export class WorkItemTools {
   public async createLink(params: CreateLinkParams): Promise<McpResponse> {
     try {
       const workItem = await this.workItemService.createLink(params);
-      return formatMcpResponse(workItem, `Created ${params.linkType} link from work item ${params.sourceId} to ${params.targetId}`);
+      return formatMcpResponse(workItem, `Created ${params.linkType} link from work item ${params.sourceId} to ${params.targetId}`, false, true);
     } catch (error) {
       console.error('Error in createLink tool:', error);
       return formatErrorResponse(error);

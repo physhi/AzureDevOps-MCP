@@ -144,7 +144,33 @@ export class GitTools {
   public async getFileContent(params: GetFileContentParams): Promise<McpResponse> {
     try {
       const file = await this.gitService.getFileContent(params);
-      return formatMcpResponse(file);
+      const formattedContent = this.formatFileContent(file, params.path);
+
+      // Calculate metadata
+      const content = file.content || '';
+      const lines = content.split('\n');
+      const totalLines = lines.length;
+      const sizeInBytes = Buffer.byteLength(content, 'utf8');
+      const maxLines = 250;
+      const truncated = totalLines > maxLines;
+
+      // Return with structured content
+      return formatMcpResponse(
+        {
+          path: params.path,
+          content: content,
+          metadata: {
+            size: sizeInBytes,
+            lines: totalLines,
+            encoding: 'utf-8',
+            truncated: truncated,
+            ...(params.versionDescriptor?.version && { version: params.versionDescriptor.version })
+          }
+        },
+        formattedContent,
+        false,
+        true  // Enable structured content
+      );
     } catch (error) {
       console.error('Error in getFileContent tool:', error);
       return formatErrorResponse(error);
@@ -165,154 +191,112 @@ export class GitTools {
   }
 
   /**
-   * Format commit history response with enhanced readability
+   * Format commit history response with concise, LLM-optimized formatting
    */
   private formatCommitHistoryResponse(commits: any[], params: GetCommitHistoryParams): McpResponse {
     if (!commits || commits.length === 0) {
-      return {
-        content: [
-          {
-            type: "text",
-            text: `## 📊 Commit History\n\n**No commits found** for the specified criteria.\n\n**Repository:** ${params.repository}\n${params.itemPath ? `**File Path:** ${params.itemPath}\n` : ''}**Total commits:** 0`
-          }
-        ]
-      };
+      return formatMcpResponse(
+        { commits: [], totalCommits: 0, repository: params.repository },
+        `## Commit History\n\n**No commits found** for the specified criteria.\n\n**Repository:** ${params.repository}\n${params.itemPath ? `**File Path:** ${params.itemPath}\n` : ''}**Total commits:** 0`
+      );
     }
 
-    // Helper function to format date in a readable way
-    const formatDate = (dateString: string): string => {
-      try {
-        const date = new Date(dateString);
-        const now = new Date();
-        const diffMs = now.getTime() - date.getTime();
-        const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
-        const diffHours = Math.floor(diffMs / (1000 * 60 * 60));
-        const diffMinutes = Math.floor(diffMs / (1000 * 60));
-
-        let timeAgo = '';
-        if (diffDays > 0) {
-          timeAgo = `${diffDays} day${diffDays > 1 ? 's' : ''} ago`;
-        } else if (diffHours > 0) {
-          timeAgo = `${diffHours} hour${diffHours > 1 ? 's' : ''} ago`;
-        } else if (diffMinutes > 0) {
-          timeAgo = `${diffMinutes} minute${diffMinutes > 1 ? 's' : ''} ago`;
-        } else {
-          timeAgo = 'Just now';
-        }
-
-        const formatted = date.toLocaleDateString('en-US', { 
-          year: 'numeric', 
-          month: 'short', 
-          day: 'numeric',
-          hour: '2-digit',
-          minute: '2-digit'
-        });
-
-        return `${formatted} (${timeAgo})`;
-      } catch {
-        return dateString;
-      }
+    // Helper function to format author
+    const formatAuthor = (author: any): string => {
+      if (!author) return 'Unknown';
+      return author.displayName || author.name || author.email || 'Unknown';
     };
 
     // Helper function to format commit message
     const formatCommitMessage = (message: string): { title: string, description: string } => {
       if (!message) return { title: 'No commit message', description: '' };
-      
       const lines = message.trim().split('\n');
       const title = lines[0] || 'No commit message';
       const description = lines.slice(1).join('\n').trim();
-      
       return { title, description };
     };
 
-    // Helper function to format author
-    const formatAuthor = (author: any): string => {
-      if (!author) return 'Unknown';
-      if (author.displayName) return author.displayName;
-      if (author.name) return author.name;
-      if (author.email) return author.email;
-      return 'Unknown';
-    };
+    // Calculate summary statistics upfront
+    const totalAuthors = new Set(commits.map((c: any) => formatAuthor(c.author))).size;
 
-    // Generate the formatted output
-    let result = `## 📊 Commit History\n\n`;
-
-    // Add header with metadata
-    result += `**Repository:** ${params.repository}\n`;
+    // START WITH SUMMARY AT TOP
+    let result = `## Commit History\n\n`;
+    result += `**${commits.length} commits** | **${totalAuthors} contributor${totalAuthors > 1 ? 's' : ''}**`;
     if (params.itemPath) {
-      result += `**File Path:** ${params.itemPath}\n`;
+      result += ` | **Path:** \`${params.itemPath}\``;
     }
-    result += `**Total commits:** ${commits.length}\n`;
-    if (params.top) {
-      result += `**Showing:** Latest ${Math.min(params.top, commits.length)} commits\n`;
-    }
-    result += `\n---\n\n`;
+    result += `\n\n`;
 
-    // Add each commit
-    commits.forEach((commit, index) => {
+    // Optional pagination info
+    if (params.skip && params.skip > 0) {
+      result += `⚠️ Skipped ${params.skip} commits\n\n`;
+    }
+
+    result += `---\n\n`;
+
+    // Commit list (simplified inline format)
+    commits.forEach((commit: any, index: number) => {
       const { title, description } = formatCommitMessage(commit.comment);
       const author = formatAuthor(commit.author);
-      const committer = formatAuthor(commit.committer);
-      const commitDate = formatDate(commit.author?.date || commit.committer?.date);
-      
-      result += `### ${index + 1}. 🔸 ${title}\n\n`;
+      const commitDate = commit.author?.date || commit.committer?.date;
+      const shortDate = commitDate ? new Date(commitDate).toLocaleDateString('en-US', {
+        month: 'short',
+        day: 'numeric',
+        year: 'numeric'
+      }) : 'Unknown';
+      const shortId = commit.commitId?.substring(0, 8) || 'Unknown';
 
-      // Commit metadata table
-      result += `| Property | Value |\n`;
-      result += `|----------|-------|\n`;
-      result += `| **Commit ID** | \`${commit.commitId?.substring(0, 12) || 'Unknown'}...\` |\n`;
-      result += `| **Author** | ${author} |\n`;
-      if (committer && committer !== author) {
-        result += `| **Committer** | ${committer} |\n`;
-      }
-      result += `| **Date** | ${commitDate} |\n`;
+      result += `### ${index + 1}. ${title}\n\n`;
+
+      // Inline metadata (concise, one line)
+      result += `**\`${shortId}\`** by **${author}** on ${shortDate}`;
+
+      // Add file changes if available
       if (commit.changeCounts) {
         const changes = commit.changeCounts;
-        let changesSummary = [];
-        if (changes.Add > 0) changesSummary.push(`${changes.Add} added`);
-        if (changes.Edit > 0) changesSummary.push(`${changes.Edit} modified`);
-        if (changes.Delete > 0) changesSummary.push(`${changes.Delete} deleted`);
-        if (changesSummary.length > 0) {
-          result += `| **Files Changed** | ${changesSummary.join(', ')} |\n`;
+        const changesParts: string[] = [];
+        if (changes.Add > 0) changesParts.push(`+${changes.Add}`);
+        if (changes.Edit > 0) changesParts.push(`~${changes.Edit}`);
+        if (changes.Delete > 0) changesParts.push(`-${changes.Delete}`);
+        if (changesParts.length > 0) {
+          result += ` | ${changesParts.join(' ')} files`;
         }
       }
 
-      // Add description if present
+      result += `\n\n`;
+
+      // Add description if present (no code block, just quote)
       if (description) {
-        result += `\n**Description:**\n\`\`\`\n${description}\n\`\`\`\n`;
+        result += `> ${description.split('\n').join('\n> ')}\n\n`;
       }
 
-      // Add remote URL if available
+      // Add commit link if available
       if (commit.remoteUrl) {
-        result += `\n📍 **[View Commit](${commit.remoteUrl})**\n`;
+        result += `[View Commit](${commit.remoteUrl})\n\n`;
       }
 
-      result += `\n---\n\n`;
+      result += `---\n\n`;
     });
 
-    // Add summary statistics
-    const totalAuthors = new Set(commits.map(c => formatAuthor(c.author))).size;
-    const dateRange = commits.length > 1 ? 
-      `${formatDate(commits[commits.length - 1]?.author?.date || commits[commits.length - 1]?.committer?.date)} to ${formatDate(commits[0]?.author?.date || commits[0]?.committer?.date)}` :
-      'Single commit';
-
-    result += `## 📈 Summary\n\n`;
-    result += `- **Total commits shown:** ${commits.length}\n`;
-    result += `- **Contributors:** ${totalAuthors} author${totalAuthors > 1 ? 's' : ''}\n`;
-    result += `- **Date range:** ${dateRange}\n`;
-
-    if (params.skip && params.skip > 0) {
-      result += `- **Pagination:** Skipped ${params.skip} commits\n`;
-    }
-
-    return {
-      content: [
-        {
-          type: "text",
-          text: result
-        }
-      ]
+    // Prepare structured content
+    const structuredData = {
+      repository: params.repository,
+      itemPath: params.itemPath,
+      commits: commits.map((commit: any) => ({
+        commitId: commit.commitId,
+        author: formatAuthor(commit.author),
+        date: commit.author?.date || commit.committer?.date,
+        message: commit.comment,
+        changeCounts: commit.changeCounts,
+        remoteUrl: commit.remoteUrl
+      })),
+      summary: {
+        totalCommits: commits.length,
+        contributors: totalAuthors
+      }
     };
+
+    return formatMcpResponse(structuredData, result, false, true);
   }
 
   /**
@@ -322,7 +306,40 @@ export class GitTools {
     try {
       const pullRequests = await this.gitService.getPullRequests(params);
       const formattedDocument = this.formatPullRequestsTable(pullRequests, params.repository);
-      return formatMcpResponse(pullRequests, formattedDocument);
+
+      // Calculate summary for structured content
+      const activeCount = pullRequests.filter((pr: any) => pr.status === 1).length;
+      const completedCount = pullRequests.filter((pr: any) => pr.status === 2).length;
+      const abandonedCount = pullRequests.filter((pr: any) => pr.status === 3).length;
+
+      // Return with structured content
+      return formatMcpResponse(
+        {
+          repository: params.repository,
+          pullRequests: pullRequests.map((pr: any) => ({
+            id: pr.pullRequestId,
+            title: pr.title,
+            author: pr.createdBy?.displayName || pr.createdBy?.uniqueName,
+            status: pr.status,
+            createdDate: pr.creationDate,
+            sourceBranch: pr.sourceRefName?.replace('refs/heads/', ''),
+            targetBranch: pr.targetRefName?.replace('refs/heads/', ''),
+            isDraft: pr.isDraft,
+            url: pr.url
+          })),
+          summary: {
+            total: pullRequests.length,
+            byStatus: {
+              active: activeCount,
+              completed: completedCount,
+              abandoned: abandonedCount
+            }
+          }
+        },
+        formattedDocument,
+        false,
+        true  // Enable structured content
+      );
     } catch (error) {
       console.error('Error in listPullRequests tool:', error);
       return formatErrorResponse(error);
@@ -330,140 +347,51 @@ export class GitTools {
   }
 
   /**
-   * Formats pull requests data into a human-readable table format
+   * Formats pull requests data into a concise table format
    */
   private formatPullRequestsTable(data: any[], repository: string): string {
     if (!data || data.length === 0) {
-      return `# 📋 Pull Requests for Repository: ${repository}\n\n**No pull requests found.**`;
+      return `## Pull Requests\n\n**No pull requests found** in repository: ${repository}`;
     }
 
-    let result = `# 📋 Pull Requests for Repository: ${repository}\n\n`;
-    result += `**Total Pull Requests:** ${data.length}\n\n`;
-
-    // Create table header
-    result += `| PR # | Title | Author | Status | Created | Reviewers | Branch |\n`;
-    result += `|------|-------|--------|--------|---------|-----------|--------|\n`;
-
-    data.forEach((pr) => {
-      // Get status display
+    // Helper function for status
+    const getStatusString = (status: number): string => {
       const statusMap: { [key: number]: string } = {
         1: '🔄 Active',
-        2: '✅ Completed', 
+        2: '✅ Completed',
         3: '🔀 Abandoned',
-        4: '❌ Not Set'
+        4: '❓ Not Set'
       };
-      const status = statusMap[pr.status] || `Unknown (${pr.status})`;
+      return statusMap[status] || 'Unknown';
+    };
 
-      // Get author name
-      const author = pr.createdBy?.displayName || pr.createdBy?.uniqueName || 'Unknown';
+    // Calculate summary statistics upfront
+    const activeCount = data.filter((pr: any) => pr.status === 1).length;
+    const completedCount = data.filter((pr: any) => pr.status === 2).length;
+    const abandonedCount = data.filter((pr: any) => pr.status === 3).length;
 
-      // Get creation date (formatted)
-      const createdDate = pr.creationDate ? new Date(pr.creationDate).toLocaleDateString() : 'Unknown';
+    // START WITH SUMMARY AT TOP
+    let result = `## Pull Requests\n\n`;
+    result += `**${data.length} PRs** in **${repository}**`;
+    if (activeCount > 0 || completedCount > 0 || abandonedCount > 0) {
+      result += ` | ${activeCount} active, ${completedCount} completed, ${abandonedCount} abandoned`;
+    }
+    result += `\n\n---\n\n`;
 
-      // Get reviewers (required ones first, then others)
-      const reviewers = pr.reviewers || [];
-      const requiredReviewers = reviewers.filter((r: any) => r.isRequired).map((r: any) => r.displayName || r.uniqueName);
-      const optionalReviewers = reviewers.filter((r: any) => !r.isRequired).map((r: any) => r.displayName || r.uniqueName);
-      
-      let reviewerText = '';
-      if (requiredReviewers.length > 0) {
-        reviewerText += `**Required:** ${requiredReviewers.join(', ')}`;
-      }
-      if (optionalReviewers.length > 0) {
-        if (reviewerText) reviewerText += '<br>';
-        reviewerText += `*Optional:* ${optionalReviewers.join(', ')}`;
-      }
-      if (!reviewerText) reviewerText = 'None';
+    // Simplified 5-column table
+    result += `| # | Title | Author | Status | Branch |\n`;
+    result += `|---|-------|--------|--------|--------|\n`;
 
-      // Get branch info
-      const sourceBranch = pr.sourceRefName?.replace('refs/heads/', '') || 'Unknown';
-      const targetBranch = pr.targetRefName?.replace('refs/heads/', '') || 'Unknown';
-      const branchInfo = `${sourceBranch} → ${targetBranch}`;
+    data.forEach((pr: any) => {
+      const prId = pr.pullRequestId;
+      const title = pr.title ? (pr.title.length > 60 ? pr.title.substring(0, 57) + '...' : pr.title) : 'No Title';
+      const author = pr.createdBy?.displayName || 'Unknown';
+      const status = getStatusString(pr.status);
+      const sourceBranch = pr.sourceRefName?.replace('refs/heads/', '') || '?';
+      const targetBranch = pr.targetRefName?.replace('refs/heads/', '') || '?';
+      const branchInfo = `\`${sourceBranch}\` → \`${targetBranch}\``;
 
-      // Truncate title if too long
-      const title = pr.title ? (pr.title.length > 50 ? pr.title.substring(0, 47) + '...' : pr.title) : 'No Title';
-
-      result += `| #${pr.pullRequestId} | ${title} | ${author} | ${status} | ${createdDate} | ${reviewerText} | ${branchInfo} |\n`;
-    });
-
-    // Add detailed section for each PR
-    result += `\n## 📄 Detailed Information\n\n`;
-    
-    data.forEach((pr, index) => {
-      result += `### PR #${pr.pullRequestId}: ${pr.title || 'No Title'}\n\n`;
-      
-      // Basic info
-      result += `**👤 Author:** ${pr.createdBy?.displayName || 'Unknown'} (${pr.createdBy?.uniqueName || 'N/A'})\n`;
-      result += `**📅 Created:** ${pr.creationDate ? new Date(pr.creationDate).toLocaleString() : 'Unknown'}\n`;
-      result += `**🔄 Status:** ${(() => {
-        const statusMap: { [key: number]: string } = {
-          1: '🔄 Active (Open)',
-          2: '✅ Completed (Merged)', 
-          3: '🔀 Abandoned (Closed)',
-          4: '❌ Not Set'
-        };
-        return statusMap[pr.status] || `Unknown (${pr.status})`;
-      })()}\n`;
-      
-      // Branch information
-      const sourceBranch = pr.sourceRefName?.replace('refs/heads/', '') || 'Unknown';
-      const targetBranch = pr.targetRefName?.replace('refs/heads/', '') || 'Unknown';
-      result += `**🌿 Branch:** \`${sourceBranch}\` → \`${targetBranch}\`\n`;
-      
-      // Draft status
-      if (pr.isDraft) {
-        result += `**📝 Status:** 🚧 DRAFT\n`;
-      }
-
-      // Reviewers with voting status
-      const reviewers = pr.reviewers || [];
-      if (reviewers.length > 0) {
-        result += `**👥 Reviewers:**\n`;
-        reviewers.forEach((reviewer: any) => {
-          const voteMap: { [key: number]: string } = {
-            10: '✅ Approved',
-            5: '✅ Approved with Suggestions',
-            0: '⏳ No Response',
-            '-5': '⏸️ Waiting for Author',
-            '-10': '❌ Rejected'
-          };
-          const vote = voteMap[reviewer.vote] || `Unknown (${reviewer.vote})`;
-          const required = reviewer.isRequired ? ' **(Required)**' : ' *(Optional)*';
-          result += `  - ${reviewer.displayName || reviewer.uniqueName}${required}: ${vote}\n`;
-        });
-      } else {
-        result += `**👥 Reviewers:** None assigned\n`;
-      }
-
-      // Description
-      if (pr.description && pr.description.trim()) {
-        const description = pr.description.length > 200 ? pr.description.substring(0, 197) + '...' : pr.description;
-        result += `**📝 Description:** ${description}\n`;
-      }
-
-      // Work items (if available in the response)
-      if (pr.workItems && pr.workItems.length > 0) {
-        result += `**🔗 Work Items:**\n`;
-        pr.workItems.forEach((workItem: any) => {
-          result += `  - #${workItem.id}: ${workItem.title || 'No Title'}\n`;
-        });
-      }
-
-      // Labels (if any)
-      if (pr.labels && pr.labels.length > 0) {
-        result += `**🏷️ Labels:** ${pr.labels.map((label: any) => label.name).join(', ')}\n`;
-      }
-
-      // Merge information
-      if (pr.status === 2 && pr.lastMergeCommit) { // Completed
-        result += `**✅ Merged:** Commit ${pr.lastMergeCommit.commitId?.substring(0, 8) || 'Unknown'}\n`;
-      }
-
-      result += `**🔗 URL:** [View in Azure DevOps](${pr.url})\n\n`;
-      
-      if (index < data.length - 1) {
-        result += `---\n\n`;
-      }
+      result += `| #${prId} | ${title} | ${author} | ${status} | ${branchInfo} |\n`;
     });
 
     return result;
@@ -551,7 +479,34 @@ TargetCommitId: ${pullRequest.lastMergeTargetCommit?.commitId || 'N/A'}
     try {
       const comments = await this.gitService.getPullRequestComments(params);
       const formattedDocument = this.formatPullRequestCommentsDocument(comments, params.pullRequestId);
-      return formatMcpResponse(comments, formattedDocument);
+
+      // Handle both array and object with value property
+      const threads = Array.isArray(comments) ? comments : (comments.value || []);
+
+      // Prepare structured content
+      const structuredData = {
+        pullRequestId: params.pullRequestId,
+        threads: threads.map((thread: any) => ({
+          id: thread.id,
+          type: thread.properties?.CodeReviewThreadType?.$value,
+          filePath: thread.threadContext?.filePath,
+          lineStart: thread.threadContext?.rightFileStart?.line,
+          lineEnd: thread.threadContext?.rightFileEnd?.line,
+          comments: (thread.comments || []).map((comment: any) => ({
+            author: comment.author?.displayName || comment.author?.uniqueName,
+            content: comment.content,
+            publishedDate: comment.publishedDate,
+            isReply: comment.parentCommentId > 0,
+            likesCount: comment.usersLiked?.length || 0
+          }))
+        })),
+        summary: {
+          totalThreads: threads.length,
+          totalComments: threads.reduce((sum: number, t: any) => sum + (t.comments?.length || 0), 0)
+        }
+      };
+
+      return formatMcpResponse(structuredData, formattedDocument, false, true);
     } catch (error) {
       console.error('Error in getPullRequestComments tool:', error);
       return formatErrorResponse(error);
@@ -559,23 +514,33 @@ TargetCommitId: ${pullRequest.lastMergeTargetCommit?.commitId || 'N/A'}
   }
 
   /**
-   * Formats pull request comments data into a readable document format
+   * Formats pull request comments data into a concise document format
    */
   private formatPullRequestCommentsDocument(data: any, pullRequestId: number): string {
     if (!data || (!Array.isArray(data) && !data.length && !data.value)) {
-      return `# Pull Request ${pullRequestId} - Comments\n\nNo comments found in this pull request.`;
+      return `## PR Comments\n\n**No comments found** in PR #${pullRequestId}`;
     }
 
     // Handle both array and object with value property
     const threads = Array.isArray(data) ? data : (data.value || []);
-    
+
     if (threads.length === 0) {
-      return `# Pull Request ${pullRequestId} - Comments\n\nNo comments found in this pull request.`;
+      return `## PR Comments\n\n**No comments found** in PR #${pullRequestId}`;
     }
 
-    let document = `# Pull Request ${pullRequestId} - Comments & Activity\n\n`;
-    document += `**Total threads:** ${threads.length}\n\n`;
-    document += `---\n\n`;
+    // Calculate summary statistics upfront
+    const commentCount = threads.reduce((sum: number, thread: any) => sum + (thread.comments?.length || 0), 0);
+    const codeReviewCount = threads.filter((t: any) => t.properties?.CodeReviewThreadType?.$value === 'CodeReview').length;
+    const generalCount = threads.filter((t: any) => t.properties?.CodeReviewThreadType?.$value === 'General').length;
+    const systemCount = threads.length - codeReviewCount - generalCount;
+
+    // START WITH SUMMARY AT TOP
+    let document = `## PR #${pullRequestId} Comments\n\n`;
+    document += `**${threads.length} threads** | **${commentCount} comments**`;
+    if (codeReviewCount > 0 || generalCount > 0 || systemCount > 0) {
+      document += ` | ${codeReviewCount} code review, ${generalCount} general, ${systemCount} system`;
+    }
+    document += `\n\n---\n\n`;
 
     threads.forEach((thread: any, index: number) => {
       document += this.formatCommentThread(thread, index + 1);
@@ -589,39 +554,31 @@ TargetCommitId: ${pullRequest.lastMergeTargetCommit?.commitId || 'N/A'}
    * Formats a single comment thread
    */
   private formatCommentThread(thread: any, threadNumber: number): string {
-    const threadId = thread.id || 'Unknown';
-    const publishedDate = thread.publishedDate ? new Date(thread.publishedDate).toLocaleString() : 'Unknown';
-    const lastUpdated = thread.lastUpdatedDate ? new Date(thread.lastUpdatedDate).toLocaleString() : 'Unknown';
-    
-    let threadDoc = `## Thread ${threadNumber} (ID: ${threadId})\n\n`;
-    threadDoc += `**Published:** ${publishedDate}  \n`;
-    threadDoc += `**Last Updated:** ${lastUpdated}  \n`;
-
-    // Determine thread type and context
     const threadType = thread.properties?.CodeReviewThreadType?.$value || 'Unknown';
-    threadDoc += `**Type:** ${this.getThreadTypeDescription(threadType)}  \n`;
+    const typeLabel = this.getThreadTypeDescription(threadType);
 
-    // Add file context if available
+    let threadDoc = `### ${threadNumber}. ${typeLabel}`;
+
+    // Add file context if available (inline)
     if (thread.threadContext?.filePath) {
-      threadDoc += `**File:** \`${thread.threadContext.filePath}\`  \n`;
-      if (thread.threadContext.rightFileStart && thread.threadContext.rightFileEnd) {
-        threadDoc += `**Lines:** ${thread.threadContext.rightFileStart.line}-${thread.threadContext.rightFileEnd.line}  \n`;
+      const filePath = thread.threadContext.filePath;
+      const lineStart = thread.threadContext.rightFileStart?.line;
+      const lineEnd = thread.threadContext.rightFileEnd?.line;
+
+      threadDoc += ` | \`${filePath}\``;
+      if (lineStart && lineEnd) {
+        threadDoc += `:${lineStart}-${lineEnd}`;
       }
     }
 
-    threadDoc += `\n`;
+    threadDoc += `\n\n`;
 
     // Format comments in the thread
     if (thread.comments && thread.comments.length > 0) {
-      threadDoc += `### Comments:\n\n`;
-      
-      thread.comments.forEach((comment: any, commentIndex: number) => {
-        threadDoc += this.formatSingleComment(comment, commentIndex + 1, thread.identities);
+      thread.comments.forEach((comment: any) => {
+        threadDoc += this.formatSingleComment(comment);
       });
     }
-
-    // Add additional context based on thread type
-    threadDoc += this.formatThreadSpecificInfo(thread, threadType);
 
     return threadDoc;
   }
@@ -629,20 +586,19 @@ TargetCommitId: ${pullRequest.lastMergeTargetCommit?.commitId || 'N/A'}
   /**
    * Formats a single comment
    */
-  private formatSingleComment(comment: any, commentNumber: number, identities: any): string {
-    const author = comment.author?.displayName || 'Unknown Author';
+  private formatSingleComment(comment: any): string {
+    const author = comment.author?.displayName || 'Unknown';
     const content = comment.content || 'No content';
-    const publishedDate = comment.publishedDate ? new Date(comment.publishedDate).toLocaleString() : 'Unknown';
     const isReply = comment.parentCommentId > 0;
-    
-    let commentDoc = `${isReply ? '  ' : ''}**${isReply ? '↳ Reply' : 'Comment'} ${commentNumber}** by **${author}**  \n`;
-    commentDoc += `${isReply ? '  ' : ''}*${publishedDate}*\n\n`;
-    commentDoc += `${isReply ? '  ' : ''}> ${content}\n\n`;
+
+    let commentDoc = `${isReply ? '  ' : ''}**${isReply ? '↳ ' : ''}${author}:**`;
 
     // Add likes if any
     if (comment.usersLiked && comment.usersLiked.length > 0) {
-      commentDoc += `${isReply ? '  ' : ''}👍 *${comment.usersLiked.length} like(s)*\n\n`;
+      commentDoc += ` 👍${comment.usersLiked.length}`;
     }
+
+    commentDoc += `\n${isReply ? '  ' : ''}> ${content}\n\n`;
 
     return commentDoc;
   }
@@ -652,56 +608,13 @@ TargetCommitId: ${pullRequest.lastMergeTargetCommit?.commitId || 'N/A'}
    */
   private getThreadTypeDescription(threadType: string): string {
     switch (threadType) {
-      case 'RefUpdate': return 'Branch Update';
-      case 'ReviewersUpdate': return 'Reviewers Change';
-      case 'IsDraftUpdate': return 'Draft Status Change';
-      case 'CodeReview': return 'Code Review Comment';
-      case 'General': return 'General Comment';
+      case 'CodeReview': return '💬 Code Review';
+      case 'General': return '💭 General';
+      case 'RefUpdate': return '🔄 Branch Update';
+      case 'ReviewersUpdate': return '👥 Reviewers Change';
+      case 'IsDraftUpdate': return '📝 Draft Change';
       default: return threadType || 'Unknown';
     }
-  }
-
-  /**
-   * Formats thread-specific information
-   */
-  private formatThreadSpecificInfo(thread: any, threadType: string): string {
-    let info = '';
-
-    if (threadType === 'RefUpdate' && thread.properties) {
-      const refName = thread.properties.CodeReviewRefName?.$value;
-      const commitCount = thread.properties.CodeReviewRefNewCommitsCount?.$value;
-      const newCommits = thread.properties.CodeReviewRefNewCommits?.$value;
-      
-      if (refName) {
-        info += `**Updated Branch:** \`${refName}\`  \n`;
-      }
-      if (commitCount) {
-        info += `**New Commits:** ${commitCount}  \n`;
-      }
-      if (newCommits) {
-        const commits = newCommits.split(';');
-        info += `**Commit IDs:**\n`;
-        commits.forEach((commit: string) => {
-          info += `  - \`${commit.substring(0, 8)}...\`\n`;
-        });
-      }
-      info += `\n`;
-    }
-
-    if (threadType === 'ReviewersUpdate' && thread.properties) {
-      const added = thread.properties.CodeReviewReviewersUpdatedNumAdded?.$value;
-      const removed = thread.properties.CodeReviewReviewersUpdatedNumRemoved?.$value;
-      
-      if (added > 0) {
-        info += `**Reviewers Added:** ${added}  \n`;
-      }
-      if (removed > 0) {
-        info += `**Reviewers Removed:** ${removed}  \n`;
-      }
-      info += `\n`;
-    }
-
-    return info;
   }
 
   /**
@@ -806,7 +719,7 @@ TargetCommitId: ${pullRequest.lastMergeTargetCommit?.commitId || 'N/A'}
     try {
       const changes = await this.gitService.getPullRequestFileChanges(params);
       const formattedContent = this.formatPullRequestFileChanges(changes);
-      return formatMcpResponse(changes, formattedContent);
+      return formatMcpResponse(changes, formattedContent, false, true); // Enable structured content
     } catch (error) {
       console.error('Error in getPullRequestFileChanges tool:', error);
       return formatErrorResponse(error);
@@ -833,7 +746,35 @@ TargetCommitId: ${pullRequest.lastMergeTargetCommit?.commitId || 'N/A'}
     try {
       const changes = await this.gitService.getAllPullRequestChanges(params);
       const formattedTable = this.formatPullRequestChangesTable(changes);
-      return formatMcpResponse(changes, formattedTable);
+
+      // Calculate summary for structured content
+      const changeList = changes.changes || [];
+      const addedCount = changeList.filter((c: any) => c.changeType === 1).length;
+      const modifiedCount = changeList.filter((c: any) => c.changeType === 2).length;
+      const deletedCount = changeList.filter((c: any) => c.changeType === 3).length;
+
+      // Return with structured content
+      return formatMcpResponse(
+        {
+          pullRequestId: params.pullRequestId,
+          changes: changeList.map((change: any) => ({
+            path: change.item?.path,
+            changeType: change.changeType,
+            size: change.item?.size
+          })),
+          summary: {
+            totalChanges: changes.totalCount || changeList.length,
+            byType: {
+              added: addedCount,
+              modified: modifiedCount,
+              deleted: deletedCount
+            }
+          }
+        },
+        formattedTable,
+        false,
+        true  // Enable structured content
+      );
     } catch (error) {
       console.error('Error in getAllPullRequestChanges tool:', error);
       return formatErrorResponse(error);
@@ -841,7 +782,7 @@ TargetCommitId: ${pullRequest.lastMergeTargetCommit?.commitId || 'N/A'}
   }
 
   /**
-   * Formats pull request changes data into a readable table format
+   * Formats pull request changes data into a concise table format
    */
   private formatPullRequestChangesTable(data: any): string {
     if (!data || !data.changes || data.changes.length === 0) {
@@ -849,131 +790,94 @@ TargetCommitId: ${pullRequest.lastMergeTargetCommit?.commitId || 'N/A'}
     }
 
     const changes = data.changes;
-    
-    // Helper function to convert change type to readable string
+
+    // Helper function to convert change type to readable string with emoji
     const getChangeTypeString = (changeType: number): string => {
       switch (changeType) {
-        case 1: return 'Added';
-        case 2: return 'Modified';
-        case 3: return 'Deleted';
-        default: return 'Unknown';
+        case 1: return '🟢 Added';
+        case 2: return '🟡 Modified';
+        case 3: return '🔴 Deleted';
+        default: return '❓ Unknown';
       }
     };
 
-    // Helper function to get file extension for easier scanning
-    const getFileExtension = (path: string): string => {
-      const lastDot = path.lastIndexOf('.');
-      return lastDot > -1 ? path.substring(lastDot) : 'No ext';
-    };
-
-    // Helper function to format file size
-    const formatFileSize = (sizeInBytes: number): string => {
-      if (!sizeInBytes || sizeInBytes === 0) return 'N/A';
-      if (sizeInBytes < 1024) return `${sizeInBytes}B`;
-      if (sizeInBytes < 1024 * 1024) return `${(sizeInBytes / 1024).toFixed(1)}KB`;
-      return `${(sizeInBytes / (1024 * 1024)).toFixed(1)}MB`;
-    };
-
-    // Helper function to get directory path
-    const getDirectory = (path: string): string => {
-      const lastSlash = path.lastIndexOf('/');
-      return lastSlash > -1 ? path.substring(0, lastSlash) : '/';
-    };
-
-    // Enhanced table header with more information
-    let table = `## Pull Request Changes (${data.totalCount || changes.length} files)\n\n`;
-    table += "| # | Change | File Path | Size | Directory | Extension | Tracking ID |\n";
-    table += "|---|--------|-----------|------|-----------|-----------|-------------|\n";
-
-    // Table rows with enhanced information
-    changes.forEach((change: any, index: number) => {
-      const changeNum = (index + 1).toString();
-      const changeType = getChangeTypeString(change.changeType);
-      const filePath = change.item?.path || 'N/A';
-      const fileSize = formatFileSize(change.item?.size);
-      const directory = getDirectory(filePath).substring(0, 40) + (getDirectory(filePath).length > 40 ? '...' : '');
-      const extension = getFileExtension(filePath);
-      const trackingId = change.changeTrackingId ? change.changeTrackingId.toString().substring(0, 8) : 'N/A';
-      
-      table += `| ${changeNum} | ${changeType} | ${filePath} | ${fileSize} | ${directory} | ${extension} | ${trackingId} |\n`;
-    });
-
-    // Enhanced summary statistics
+    // Calculate summary statistics upfront (to put at top)
     const addedCount = changes.filter((c: any) => c.changeType === 1).length;
     const modifiedCount = changes.filter((c: any) => c.changeType === 2).length;
     const deletedCount = changes.filter((c: any) => c.changeType === 3).length;
+    const totalCount = data.totalCount || changes.length;
 
-    // File type analysis
-    const fileTypes = new Map<string, { count: number; added: number; modified: number; deleted: number }>();
-    const directories = new Map<string, { count: number; added: number; modified: number; deleted: number }>();
-    
-    changes.forEach((change: any) => {
-      const ext = getFileExtension(change.item?.path || '');
-      const dir = getDirectory(change.item?.path || '');
-      const changeType = change.changeType;
-      
-      // File type statistics
-      if (!fileTypes.has(ext)) {
-        fileTypes.set(ext, { count: 0, added: 0, modified: 0, deleted: 0 });
-      }
-      const typeStats = fileTypes.get(ext)!;
-      typeStats.count++;
-      if (changeType === 1) typeStats.added++;
-      else if (changeType === 2) typeStats.modified++;
-      else if (changeType === 3) typeStats.deleted++;
-      
-      // Directory statistics (top-level only)
-      const topDir = dir.split('/')[1] || '/';
-      if (!directories.has(topDir)) {
-        directories.set(topDir, { count: 0, added: 0, modified: 0, deleted: 0 });
-      }
-      const dirStats = directories.get(topDir)!;
-      dirStats.count++;
-      if (changeType === 1) dirStats.added++;
-      else if (changeType === 2) dirStats.modified++;
-      else if (changeType === 3) dirStats.deleted++;
+    // START WITH SUMMARY AT TOP
+    let result = `## PR Changes\n\n`;
+    result += `**${totalCount} files:** ${modifiedCount} modified, ${addedCount} added, ${deletedCount} deleted\n\n`;
+
+    // Optional pagination info
+    if (data.totalCount && data.totalCount > changes.length) {
+      result += `⚠️ Showing ${changes.length} of ${totalCount} files (use pagination for more)\n\n`;
+    }
+
+    result += `---\n\n`;
+
+    // Simplified 3-column table
+    result += `| # | Path | Change |\n`;
+    result += `|---|------|--------|\n`;
+
+    changes.forEach((change: any, index: number) => {
+      const changeNum = index + 1;
+      const changeType = getChangeTypeString(change.changeType);
+      const filePath = change.item?.path || 'N/A';
+
+      result += `| ${changeNum} | \`${filePath}\` | ${changeType} |\n`;
     });
 
-    table += `\n**📊 Summary Statistics:**\n`;
-    table += `- **Total files:** ${data.totalCount || changes.length}\n`;
-    table += `- **Added:** ${addedCount} files 🟢\n`;
-    table += `- **Modified:** ${modifiedCount} files 🟡\n`;
-    table += `- **Deleted:** ${deletedCount} files 🔴\n`;
+    return result;
+  }
 
-    // File type breakdown (top 5)
-    const sortedTypes = Array.from(fileTypes.entries())
-      .sort((a, b) => b[1].count - a[1].count)
-      .slice(0, 5);
-    
-    if (sortedTypes.length > 0) {
-      table += `\n**📁 File Types (Top 5):**\n`;
-      sortedTypes.forEach(([ext, stats]) => {
-        table += `- **${ext}**: ${stats.count} files (${stats.added}🟢 ${stats.modified}🟡 ${stats.deleted}🔴)\n`;
-      });
+  /**
+   * Formats file content with line numbers (cat -n style) and metadata
+   */
+  private formatFileContent(data: any, path: string): string {
+    if (!data || !data.content) {
+      return `## File: \`${path}\`\n\n*No content available*`;
     }
 
-    // Directory breakdown (top 5)
-    const sortedDirs = Array.from(directories.entries())
-      .sort((a, b) => b[1].count - a[1].count)
-      .slice(0, 5);
-    
-    if (sortedDirs.length > 0) {
-      table += `\n**📂 Most Affected Directories:**\n`;
-      sortedDirs.forEach(([dir, stats]) => {
-        table += `- **${dir}**: ${stats.count} files (${stats.added}🟢 ${stats.modified}🟡 ${stats.deleted}🔴)\n`;
-      });
+    const content = data.content;
+    const lines = content.split('\n');
+    const totalLines = lines.length;
+
+    // Calculate file size
+    const sizeInBytes = Buffer.byteLength(content, 'utf8');
+    const sizeInKB = (sizeInBytes / 1024).toFixed(2);
+
+    // Determine if truncation is needed
+    const maxLines = 250;
+    const shouldTruncate = totalLines > maxLines;
+    const displayLines = shouldTruncate ? maxLines : totalLines;
+
+    // Build header with metadata
+    let result = `## File: \`${path}\`\n\n`;
+    result += `**${totalLines} lines** | **${sizeInKB} KB**`;
+    if (shouldTruncate) {
+      result += ` | ⚠️ **Truncated** (showing first ${maxLines} lines)`;
+    }
+    result += `\n\n`;
+
+    // Add suggestion for large files
+    if (shouldTruncate) {
+      result += `> 💡 **Tip:** This file has ${totalLines} lines. Use \`getFileContentRanged\` to retrieve specific line ranges.\n\n`;
     }
 
-    // Total size calculation (for added/modified files)
-    const totalSize = changes
-      .filter((c: any) => c.changeType === 1 || c.changeType === 2)
-      .reduce((sum: number, c: any) => sum + (c.item?.size || 0), 0);
-    
-    if (totalSize > 0) {
-      table += `\n**💾 Total Size Impact:** ${formatFileSize(totalSize)} (added/modified files)\n`;
-    }
-    
-    return table;
+    result += `---\n\n`;
+
+    // Format content with cat -n style line numbers
+    const numberedLines = lines.slice(0, displayLines).map((line: string, idx: number) => {
+      const lineNum = (idx + 1).toString().padStart(6, ' ');
+      return `${lineNum}\t${line}`;
+    }).join('\n');
+
+    result += `\`\`\`\n${numberedLines}\n\`\`\`\n`;
+
+    return result;
   }
 
   /**
@@ -996,201 +900,55 @@ TargetCommitId: ${pullRequest.lastMergeTargetCommit?.commitId || 'N/A'}
       }
     };
 
-    // Helper function to get file extension
-    const getFileExtension = (path: string): string => {
-      const lastDot = path.lastIndexOf('.');
-      return lastDot > -1 ? path.substring(lastDot) : 'No ext';
-    };
-
-    // Helper function to get directory path
-    const getDirectory = (path: string): string => {
-      const lastSlash = path.lastIndexOf('/');
-      return lastSlash > -1 ? path.substring(0, lastSlash) : '/';
-    };
-
-    // Helper function to format Git object ID for display
-    const formatObjectId = (objectId: string): string => {
-      return objectId ? objectId.substring(0, 8) + '...' : 'N/A';
-    };
-
-    // Helper function to format diff content for display with better readability
-    const formatDiffContent = (diffContent: string): string => {
-      if (!diffContent || diffContent === '[Diff not available]' || diffContent === '[Content not available]') {
-        return diffContent;
-      }
-      
-      const lines = diffContent.split('\n');
-      let formattedLines: string[] = [];
-      let inHunk = false;
-      
-      lines.forEach((line, index) => {
-        if (line.startsWith('@@')) {
-          // Hunk header - make it stand out and add some spacing
-          if (inHunk) {
-            formattedLines.push(''); // Add spacing between hunks
-          }
-          formattedLines.push(`**${line}**`);
-          inHunk = true;
-        } else if (line.startsWith('+++') || line.startsWith('---')) {
-          // File headers - less prominent
-          formattedLines.push(`*${line}*`);
-        } else if (line.startsWith('+')) {
-          // Added line - green
-          formattedLines.push(`+ ${line.substring(1)}`);
-        } else if (line.startsWith('-')) {
-          // Removed line - red  
-          formattedLines.push(`- ${line.substring(1)}`);
-        } else if (line.startsWith(' ')) {
-          // Context line - normal
-          formattedLines.push(`  ${line.substring(1)}`);
-        } else if (line.trim() === '') {
-          // Empty line
-          formattedLines.push('');
-        } else {
-          // Other lines
-          formattedLines.push(line);
-        }
-      });
-      
-      return formattedLines.join('\n');
-    };
-
-    // Helper function to extract meaningful change summary
-    const getChangeSummary = (diffContent: string, changeType: number): string => {
-      if (!diffContent || diffContent === '[Diff not available]' || diffContent === '[Content not available]') {
-        return 'No diff available';
-      }
-      
-      const lines = diffContent.split('\n');
-      const addedLines = lines.filter(line => line.startsWith('+') && !line.startsWith('+++')).length;
-      const removedLines = lines.filter(line => line.startsWith('-') && !line.startsWith('---')).length;
-      const hunks = lines.filter(line => line.startsWith('@@')).length;
-      
-      // Handle specific change types
-      if (changeType === 1) {
-        // Added file
-        return `New file (${addedLines} lines)`;
-      } else if (changeType === 3) {
-        // Deleted file
-        return `Deleted file (${removedLines} lines)`;
-      } else if (changeType === 2) {
-        // Modified file
-        if (addedLines === 0 && removedLines === 0) {
-          return 'No meaningful changes (likely formatting)';
-        }
-        
-        let summary = [];
-        if (addedLines > 0) summary.push(`${addedLines} additions`);
-        if (removedLines > 0) summary.push(`${removedLines} deletions`);
-        if (hunks > 1) summary.push(`${hunks} change blocks`);
-        
-        return summary.join(', ');
-      }
-      
-      return 'Unknown change type';
-    };
-
-    let result = `## 📁 Pull Request File Changes with Diff Content\n\n`;
-
-    if (data.totalChanges && data.processedChanges && data.totalChanges > data.processedChanges) {
-      result += `**⚠️ Note:** Showing detailed diffs for ${data.processedChanges} of ${data.totalChanges} files (limited for performance)\n\n`;
-    }
-
-    changes.forEach((change: any, index: number) => {
-      const filePath = change.item?.path || 'N/A';
-      const changeType = getChangeTypeString(change.changeType);
-      const extension = getFileExtension(filePath);
-      const directory = getDirectory(filePath);
-      const changeNum = index + 1;
-
-      result += `### ${changeNum}. ${changeType} - \`${filePath}\`\n\n`;
-      
-      // File metadata table
-      result += `| Property | Value |\n`;
-      result += `|----------|-------|\n`;
-      result += `| **Directory** | \`${directory}\` |\n`;
-      result += `| **File Type** | \`${extension}\` |\n`;
-      result += `| **Change Type** | ${changeType} |\n`;
-      result += `| **Change Tracking ID** | \`${change.changeTrackingId}\` |\n`;
-      result += `| **Change ID** | \`${change.changeId}\` |\n`;
-
-      if (change.changeType === 2) { // Modified file
-        result += `| **Original Object ID** | \`${formatObjectId(change.item?.originalObjectId)}\` |\n`;
-        result += `| **Current Object ID** | \`${formatObjectId(change.item?.objectId)}\` |\n`;
-      } else if (change.changeType === 1) { // Added file
-        result += `| **Object ID** | \`${formatObjectId(change.item?.objectId)}\` |\n`;
-      } else if (change.changeType === 3) { // Deleted file
-        result += `| **Original Object ID** | \`${formatObjectId(change.item?.originalObjectId)}\` |\n`;
-      }
-
-      result += `\n`;
-
-      // Diff content
-      if (change.diffContent) {
-        result += `#### � **Diff Content:**\n\n`;
-        result += `\`\`\`diff\n${formatDiffContent(change.diffContent)}\n\`\`\`\n\n`;
-        
-        // Parse diff statistics for detailed view
-        const diffLines = change.diffContent.split('\n');
-        const addedLines = diffLines.filter((line: string) => line.startsWith('+') && !line.startsWith('+++')).length;
-        const removedLines = diffLines.filter((line: string) => line.startsWith('-') && !line.startsWith('---')).length;
-        const hunkCount = diffLines.filter((line: string) => line.startsWith('@@')).length;
-        
-        if (addedLines > 0 || removedLines > 0) {
-          result += `**📊 Statistics:**\n`;
-          if (addedLines > 0) result += `- **🟢 Added:** ${addedLines} lines\n`;
-          if (removedLines > 0) result += `- **🔴 Removed:** ${removedLines} lines\n`;
-          if (hunkCount > 0) result += `- **📝 Change blocks:** ${hunkCount}\n`;
-          result += `\n`;
-        }
-      } else {
-        result += `*No diff content available for this file.*\n\n`;
-      }
-      
-      result += `---\n\n`;
-    });
-
-    // Summary statistics
+    // Calculate summary statistics FIRST (to put at top)
     const addedCount = changes.filter((c: any) => c.changeType === 1).length;
     const modifiedCount = changes.filter((c: any) => c.changeType === 2).length;
     const deletedCount = changes.filter((c: any) => c.changeType === 3).length;
 
-    result += `## 📈 Summary Statistics\n\n`;
-    result += `- **🟢 Added:** ${addedCount} files\n`;
-    result += `- **🟡 Modified:** ${modifiedCount} files\n`;
-    result += `- **🔴 Deleted:** ${deletedCount} files\n`;
-
-    // File type breakdown
-    const fileTypes = new Map<string, { count: number; added: number; modified: number; deleted: number }>();
+    // Calculate total line changes upfront
+    let totalAdditions = 0;
+    let totalDeletions = 0;
     changes.forEach((change: any) => {
-      const ext = getFileExtension(change.item?.path || '');
-      if (!fileTypes.has(ext)) {
-        fileTypes.set(ext, { count: 0, added: 0, modified: 0, deleted: 0 });
+      if (change.diffContent) {
+        const lines = change.diffContent.split('\n');
+        totalAdditions += lines.filter((line: string) => line.startsWith('+') && !line.startsWith('+++')).length;
+        totalDeletions += lines.filter((line: string) => line.startsWith('-') && !line.startsWith('---')).length;
       }
-      const stats = fileTypes.get(ext)!;
-      stats.count++;
-      if (change.changeType === 1) stats.added++;
-      else if (change.changeType === 2) stats.modified++;
-      else if (change.changeType === 3) stats.deleted++;
     });
 
-    const sortedTypes = Array.from(fileTypes.entries())
-      .sort((a, b) => b[1].count - a[1].count)
-      .slice(0, 5);
+    // START WITH SUMMARY AT TOP (token-efficient, LLM sees important info first)
+    let result = `## PR File Changes\n\n`;
+    result += `**${changes.length} files:** ${modifiedCount} modified, ${addedCount} added, ${deletedCount} deleted\n`;
+    result += `**+${totalAdditions}** | **-${totalDeletions}** lines\n\n`;
 
-    if (sortedTypes.length > 0) {
-      result += `\n**📄 File Types:**\n`;
-      sortedTypes.forEach(([ext, stats]) => {
-        result += `- **${ext}**: ${stats.count} files (${stats.added}🟢 ${stats.modified}🟡 ${stats.deleted}🔴)\n`;
-      });
+    if (data.totalChanges && data.processedChanges && data.totalChanges > data.processedChanges) {
+      result += `⚠️ Showing ${data.processedChanges} of ${data.totalChanges} files\n\n`;
     }
 
-    // Pagination info if available
-    if (data.nextTop !== undefined || data.nextSkip !== undefined) {
-      result += `\n**📄 Pagination Info:**\n`;
-      result += `- **Next Top:** ${data.nextTop || 'N/A'}\n`;
-      result += `- **Next Skip:** ${data.nextSkip || 'N/A'}\n`;
-    }
+    result += `---\n\n`;
+
+    changes.forEach((change: any, index: number) => {
+      const filePath = change.item?.path || 'N/A';
+      const changeType = getChangeTypeString(change.changeType);
+
+      result += `### ${index + 1}. ${changeType} - \`${filePath}\`\n\n`;
+
+      // Calculate and show stats inline
+      if (change.diffContent) {
+        const lines = change.diffContent.split('\n');
+        const addedLines = lines.filter((line: string) => line.startsWith('+') && !line.startsWith('+++')).length;
+        const removedLines = lines.filter((line: string) => line.startsWith('-') && !line.startsWith('---')).length;
+
+        if (addedLines > 0 || removedLines > 0) {
+          result += `**+${addedLines}** | **-${removedLines}** lines\n\n`;
+        }
+
+        // Use raw diff content (no formatting wrapper)
+        result += `\`\`\`diff\n${change.diffContent}\n\`\`\`\n\n`;
+      } else {
+        result += `*No diff available*\n\n`;
+      }
+    });
 
     return result;
   }
