@@ -1,0 +1,17 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(if exist \".mcp.json\" type \".mcp.json\")",
+      "Bash(if exist \"nul\" dir \"nul\")",
+      "Read(//d/tmp/number_list/word/**)"
+    ],
+    "deny": [],
+    "ask": []
+  },
+  "enabledMcpjsonServers": [
+    "sequential-thinking-tools",
+    "clarify-doubt",
+    "azure-devops"
+  ]
+}
+

@@ -144,26 +144,74 @@ export class GitTools {
   public async getFileContent(params: GetFileContentParams): Promise<McpResponse> {
     try {
       const file = await this.gitService.getFileContent(params);
-      const formattedContent = this.formatFileContent(file, params.path);
+      const formattedContent = this.formatFileContent(file, params.path, params);
 
-      // Calculate metadata
+      // Extract metadata from service response
       const content = file.content || '';
+      const metadata = file.metadata || {};
       const lines = content.split('\n');
-      const totalLines = lines.length;
+      const actualLineCount = lines.length;
       const sizeInBytes = Buffer.byteLength(content, 'utf8');
-      const maxLines = 250;
-      const truncated = totalLines > maxLines;
 
-      // Return with structured content
+      // Truncation limits
+      const maxLines = 200;
+      const maxChars = 8000;
+
+      // Determine truncation for structured content
+      let truncated = false;
+      let truncatedDueTo: 'lineLimit' | 'charLimit' | 'none' = 'none';
+      let structuredContent = content;
+
+      // Apply line limit
+      if (actualLineCount > maxLines) {
+        const truncatedLines = lines.slice(0, maxLines);
+        structuredContent = truncatedLines.join('\n');
+        truncated = true;
+        truncatedDueTo = 'lineLimit';
+      }
+
+      // Apply character limit
+      if (structuredContent.length > maxChars) {
+        // Find how many lines fit within char limit
+        let charCount = 0;
+        let linesFit = 0;
+        const linesToCheck = structuredContent.split('\n');
+        for (let i = 0; i < linesToCheck.length; i++) {
+          const lineWithNewline = linesToCheck[i] + '\n';
+          if (charCount + lineWithNewline.length > maxChars) {
+            break;
+          }
+          charCount += lineWithNewline.length;
+          linesFit++;
+        }
+        structuredContent = linesToCheck.slice(0, linesFit).join('\n');
+        truncated = true;
+        truncatedDueTo = 'charLimit';
+      }
+
+      // Calculate effective end line for structured content
+      const structuredLines = structuredContent.split('\n');
+      const effectiveStartLine = metadata.startLine || 1;
+      const effectiveEndLine = effectiveStartLine + structuredLines.length - 1;
+
+      // Return with enhanced structured content
       return formatMcpResponse(
         {
           path: params.path,
-          content: content,
+          content: structuredContent,
           metadata: {
+            startLine: effectiveStartLine,
+            endLine: effectiveEndLine,
+            totalLines: metadata.totalLines || actualLineCount,
+            requestedStartLine: params.startLine || 1,
+            requestedLineCount: params.lineCount || metadata.totalLines || actualLineCount,
+            actualLineCount: structuredLines.length,
             size: sizeInBytes,
-            lines: totalLines,
             encoding: 'utf-8',
             truncated: truncated,
+            truncatedDueTo: truncatedDueTo,
+            maxLinesPerRequest: maxLines,
+            maxCharsPerRequest: maxChars,
             ...(params.versionDescriptor?.version && { version: params.versionDescriptor.version })
           }
         },
@@ -347,7 +395,8 @@ export class GitTools {
   }
 
   /**
-   * Formats pull requests data into a concise table format
+   * Formats pull requests data into a detailed, LLM-friendly format
+   * with comprehensive information including dates, draft status, and URLs
    */
   private formatPullRequestsTable(data: any[], repository: string): string {
     if (!data || data.length === 0) {
@@ -365,10 +414,40 @@ export class GitTools {
       return statusMap[status] || 'Unknown';
     };
 
+    // Helper function to format relative date
+    const formatRelativeDate = (dateString: string): string => {
+      const now = new Date();
+      const prDate = new Date(dateString);
+      const diffMs = now.getTime() - prDate.getTime();
+      const diffMinutes = Math.floor(diffMs / (1000 * 60));
+      const diffHours = Math.floor(diffMs / (1000 * 60 * 60));
+      const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+      const diffWeeks = Math.floor(diffDays / 7);
+      const diffMonths = Math.floor(diffDays / 30);
+
+      if (diffMinutes < 1) return 'just now';
+      if (diffMinutes < 60) return `${diffMinutes}m ago`;
+      if (diffHours < 24) return `${diffHours}h ago`;
+      if (diffDays < 7) return `${diffDays}d ago`;
+      if (diffWeeks < 4) return `${diffWeeks}w ago`;
+      return `${diffMonths}mo ago`;
+    };
+
+    // Helper function to format full date
+    const formatFullDate = (dateString: string): string => {
+      const prDate = new Date(dateString);
+      return prDate.toLocaleDateString('en-US', {
+        month: 'short',
+        day: 'numeric',
+        year: 'numeric'
+      });
+    };
+
     // Calculate summary statistics upfront
     const activeCount = data.filter((pr: any) => pr.status === 1).length;
     const completedCount = data.filter((pr: any) => pr.status === 2).length;
     const abandonedCount = data.filter((pr: any) => pr.status === 3).length;
+    const draftCount = data.filter((pr: any) => pr.isDraft).length;
 
     // START WITH SUMMARY AT TOP
     let result = `## Pull Requests\n\n`;
@@ -376,22 +455,41 @@ export class GitTools {
     if (activeCount > 0 || completedCount > 0 || abandonedCount > 0) {
       result += ` | ${activeCount} active, ${completedCount} completed, ${abandonedCount} abandoned`;
     }
+    if (draftCount > 0) {
+      result += ` | ${draftCount} draft`;
+    }
     result += `\n\n---\n\n`;
 
-    // Simplified 5-column table
-    result += `| # | Title | Author | Status | Branch |\n`;
-    result += `|---|-------|--------|--------|--------|\n`;
-
-    data.forEach((pr: any) => {
+    // DETAILED LIST
+    data.forEach((pr: any, index: number) => {
       const prId = pr.pullRequestId;
-      const title = pr.title ? (pr.title.length > 60 ? pr.title.substring(0, 57) + '...' : pr.title) : 'No Title';
-      const author = pr.createdBy?.displayName || 'Unknown';
+      const title = pr.title || 'No Title';
+      const author = pr.createdBy?.displayName || pr.createdBy?.uniqueName || 'Unknown';
       const status = getStatusString(pr.status);
       const sourceBranch = pr.sourceRefName?.replace('refs/heads/', '') || '?';
       const targetBranch = pr.targetRefName?.replace('refs/heads/', '') || '?';
-      const branchInfo = `\`${sourceBranch}\` → \`${targetBranch}\``;
+      const isDraft = pr.isDraft || false;
 
-      result += `| #${prId} | ${title} | ${author} | ${status} | ${branchInfo} |\n`;
+      // PR Header
+      result += `### ${index + 1}. #${prId} - ${title}\n\n`;
+
+      // Status and Date line
+      result += `**Status:** ${status}`;
+      if (isDraft) {
+        result += ` 📝 **DRAFT**`;
+      }
+
+      if (pr.creationDate) {
+        const relativeDate = formatRelativeDate(pr.creationDate);
+        const fullDate = formatFullDate(pr.creationDate);
+        result += ` | **Created:** ${relativeDate} (${fullDate})`;
+      }
+      result += `\n`;
+
+      // Author and Branches line
+      result += `**Author:** ${author} | **Branches:** \`${sourceBranch}\` → \`${targetBranch}\`\n\n`;
+
+      result += `---\n\n`;
     });
 
     return result;
@@ -441,6 +539,21 @@ export class GitTools {
    * Formats pull request data into readable text format
    */
   private formatPullRequestText(pullRequest: any): string {
+    // Format work items section if available
+    let workItemsSection = '';
+    if (pullRequest.workItems && pullRequest.workItems.length > 0) {
+      workItemsSection = '\n## Associated Work Items\n\n';
+      pullRequest.workItems.forEach((wi: any) => {
+        workItemsSection += `- **#${wi.id}**: ${wi.title || 'N/A'}\n`;
+        workItemsSection += `  - Type: ${wi.type || 'N/A'}\n`;
+        workItemsSection += `  - State: ${wi.state || 'N/A'}\n`;
+        if (wi.assignedTo) {
+          workItemsSection += `  - Assigned To: ${wi.assignedTo}\n`;
+        }
+        workItemsSection += '\n';
+      });
+    }
+
     return `---
 # Title
 
@@ -453,7 +566,7 @@ Name: ${pullRequest.createdBy?.displayName || 'N/A'}
 ## Description
 
 ${pullRequest.description || 'N/A'}
-
+${workItemsSection}
 ## Repository Detials
 
 ProjectId: ${pullRequest.repository?.project?.id || 'N/A'}
@@ -649,7 +762,12 @@ TargetCommitId: ${pullRequest.lastMergeTargetCommit?.commitId || 'N/A'}
   public async addPullRequestInlineComment(params: AddPullRequestInlineCommentParams): Promise<McpResponse> {
     try {
       const result = await this.gitService.addPullRequestInlineComment(params);
-      return formatMcpResponse(result, `✅ Inline comment added successfully to ${params.path} at line ${params.position.line}`);
+
+      // Build concise confirmation message
+      const fileName = params.path.split('/').pop() || params.path;
+      const message = `## Comment Added\n\n**Type:** Inline comment\n**PR:** #${params.pullRequestId}\n**File:** \`${fileName}\`\n**Line:** ${params.position.line}\n\n✅ Your comment has been posted to the Files tab.`;
+
+      return formatMcpResponse(result, message, false, true);
     } catch (error: any) {
       console.error('Error in addPullRequestInlineComment tool:', error);
       
@@ -692,7 +810,12 @@ TargetCommitId: ${pullRequest.lastMergeTargetCommit?.commitId || 'N/A'}
   public async addPullRequestFileComment(params: AddPullRequestFileCommentParams): Promise<McpResponse> {
     try {
       const result = await this.gitService.addPullRequestFileComment(params);
-      return formatMcpResponse(result);
+
+      // Build concise confirmation message
+      const fileName = params.path.split('/').pop() || params.path;
+      const message = `## Comment Added\n\n**Type:** File-level comment\n**PR:** #${params.pullRequestId}\n**File:** \`${fileName}\`\n\n✅ Your comment has been posted to the Files tab.`;
+
+      return formatMcpResponse(result, message, false, true);
     } catch (error) {
       console.error('Error in addPullRequestFileComment tool:', error);
       return formatErrorResponse(error);
@@ -705,7 +828,11 @@ TargetCommitId: ${pullRequest.lastMergeTargetCommit?.commitId || 'N/A'}
   public async addPullRequestComment(params: AddPullRequestCommentParams): Promise<McpResponse> {
     try {
       const result = await this.gitService.addPullRequestComment(params);
-      return formatMcpResponse(result);
+
+      // Build concise confirmation message
+      const message = `## Comment Added\n\n**Type:** General PR comment\n**PR:** #${params.pullRequestId}\n\n✅ Your comment has been posted to the Overview tab.`;
+
+      return formatMcpResponse(result, message, false, true);
     } catch (error) {
       console.error('Error in addPullRequestComment tool:', error);
       return formatErrorResponse(error);
@@ -834,48 +961,114 @@ TargetCommitId: ${pullRequest.lastMergeTargetCommit?.commitId || 'N/A'}
   }
 
   /**
-   * Formats file content with line numbers (cat -n style) and metadata
+   * Formats file content with line numbers (arrow notation style) and metadata
+   * Truncates to 200 lines or 8K characters, whichever comes first
    */
-  private formatFileContent(data: any, path: string): string {
+  private formatFileContent(data: any, path: string, params: GetFileContentParams): string {
     if (!data || !data.content) {
       return `## File: \`${path}\`\n\n*No content available*`;
     }
 
     const content = data.content;
+    const metadata = data.metadata || {};
     const lines = content.split('\n');
-    const totalLines = lines.length;
+
+    const totalLines = metadata.totalLines || lines.length;
+    const startLine = metadata.startLine || 1;
+    const endLine = metadata.endLine || lines.length;
+    const actualLineCount = lines.length;
 
     // Calculate file size
     const sizeInBytes = Buffer.byteLength(content, 'utf8');
     const sizeInKB = (sizeInBytes / 1024).toFixed(2);
 
-    // Determine if truncation is needed
-    const maxLines = 250;
-    const shouldTruncate = totalLines > maxLines;
-    const displayLines = shouldTruncate ? maxLines : totalLines;
+    // Truncation limits
+    const maxLines = 200;
+    const maxChars = 8000;
+
+    // Determine truncation
+    let displayLines = lines;
+    let truncated = false;
+    let truncatedDueTo: 'lineLimit' | 'charLimit' | 'none' = 'none';
+    let effectiveEndLine = endLine;
+
+    // First apply line limit
+    if (actualLineCount > maxLines) {
+      displayLines = lines.slice(0, maxLines);
+      truncated = true;
+      truncatedDueTo = 'lineLimit';
+      effectiveEndLine = startLine + maxLines - 1;
+    }
+
+    // Then check character limit
+    let formattedContent = displayLines.map((line: string, idx: number) => {
+      const lineNum = startLine + idx;
+      return `${lineNum.toString().padStart(6, ' ')}→${line}`;
+    }).join('\n');
+
+    if (formattedContent.length > maxChars) {
+      // Find how many lines fit within char limit
+      let charCount = 0;
+      let linesFit = 0;
+      for (let i = 0; i < displayLines.length; i++) {
+        const lineNum = startLine + i;
+        const formattedLine = `${lineNum.toString().padStart(6, ' ')}→${displayLines[i]}\n`;
+        if (charCount + formattedLine.length > maxChars) {
+          break;
+        }
+        charCount += formattedLine.length;
+        linesFit++;
+      }
+
+      displayLines = displayLines.slice(0, linesFit);
+      truncated = true;
+      truncatedDueTo = 'charLimit';
+      effectiveEndLine = startLine + linesFit - 1;
+
+      // Reformat with adjusted lines
+      formattedContent = displayLines.map((line: string, idx: number) => {
+        const lineNum = startLine + idx;
+        return `${lineNum.toString().padStart(6, ' ')}→${line}`;
+      }).join('\n');
+    }
 
     // Build header with metadata
     let result = `## File: \`${path}\`\n\n`;
-    result += `**${totalLines} lines** | **${sizeInKB} KB**`;
-    if (shouldTruncate) {
-      result += ` | ⚠️ **Truncated** (showing first ${maxLines} lines)`;
-    }
-    result += `\n\n`;
 
-    // Add suggestion for large files
-    if (shouldTruncate) {
-      result += `> 💡 **Tip:** This file has ${totalLines} lines. Use \`getFileContentRanged\` to retrieve specific line ranges.\n\n`;
+    if (startLine === 1 && effectiveEndLine >= totalLines && !truncated) {
+      result += `**${totalLines} lines** | **${sizeInKB} KB** | **Encoding:** utf-8`;
+    } else {
+      result += `**Lines ${startLine}-${effectiveEndLine} of ${totalLines}** | **${sizeInKB} KB** | **Encoding:** utf-8`;
     }
 
-    result += `---\n\n`;
+    if (truncated) {
+      result += `\n\n> ⚠️ **Truncated** - `;
+      if (truncatedDueTo === 'lineLimit') {
+        result += `showing first ${maxLines} lines of ${actualLineCount} requested`;
+      } else {
+        result += `content exceeds ${(maxChars / 1024).toFixed(1)}K character limit`;
+      }
+      result += `\n> 💡 **Tip:** Use \`startLine\` and \`lineCount\` parameters to view specific ranges`;
+    } else if (effectiveEndLine < totalLines) {
+      result += `\n\n> 💡 **More content available:** Use \`startLine=${effectiveEndLine + 1}\` to continue reading`;
+    }
 
-    // Format content with cat -n style line numbers
-    const numberedLines = lines.slice(0, displayLines).map((line: string, idx: number) => {
-      const lineNum = (idx + 1).toString().padStart(6, ' ');
-      return `${lineNum}\t${line}`;
-    }).join('\n');
+    result += `\n\n---\n\n`;
 
-    result += `\`\`\`\n${numberedLines}\n\`\`\`\n`;
+    // Format content with arrow notation line numbers
+    result += `\`\`\`\n${formattedContent}\n\`\`\`\n`;
+
+    // Add usage hints for large files
+    if (totalLines > maxLines || truncated) {
+      result += `\n**Navigation hints:**\n`;
+      if (effectiveEndLine < totalLines) {
+        result += `- Next range: \`startLine=${effectiveEndLine + 1}\`, \`lineCount=${maxLines}\`\n`;
+      }
+      if (startLine > 1) {
+        result += `- Previous range: \`startLine=${Math.max(1, startLine - maxLines)}\`, \`lineCount=${maxLines}\`\n`;
+      }
+      result += `- Specific range: \`startLine=<line>\`, \`lineCount=<count>\` (max ${maxLines} lines)\n`;
+    }
 
     return result;
   }
@@ -889,65 +1082,106 @@ TargetCommitId: ${pullRequest.lastMergeTargetCommit?.commitId || 'N/A'}
     }
 
     const changes = data.changeEntries;
-    
-    // Helper function to convert change type to readable string with emoji
-    const getChangeTypeString = (changeType: number): string => {
+    const MAX_DIFF_LINES = 20; // Limit diff preview to first 20 lines
+
+    // Helper function to convert change type to short label
+    const getChangeTypeLabel = (changeType: number): string => {
       switch (changeType) {
-        case 1: return '🟢 Added';
-        case 2: return '🟡 Modified';
-        case 3: return '🔴 Deleted';
-        default: return '❓ Unknown';
+        case 1: return 'Added';
+        case 2: return 'Modified';
+        case 3: return 'Deleted';
+        default: return 'Unknown';
       }
     };
 
-    // Calculate summary statistics FIRST (to put at top)
+    // Calculate summary statistics
     const addedCount = changes.filter((c: any) => c.changeType === 1).length;
     const modifiedCount = changes.filter((c: any) => c.changeType === 2).length;
     const deletedCount = changes.filter((c: any) => c.changeType === 3).length;
 
-    // Calculate total line changes upfront
+    // Calculate total line changes and prepare file info
     let totalAdditions = 0;
     let totalDeletions = 0;
+    const fileInfos: Array<{ path: string; type: string; added: number; removed: number; diffLines: number; }> = [];
+
     changes.forEach((change: any) => {
+      const filePath = change.item?.path || 'N/A';
+      let added = 0;
+      let removed = 0;
+      let diffLines = 0;
+
       if (change.diffContent) {
         const lines = change.diffContent.split('\n');
-        totalAdditions += lines.filter((line: string) => line.startsWith('+') && !line.startsWith('+++')).length;
-        totalDeletions += lines.filter((line: string) => line.startsWith('-') && !line.startsWith('---')).length;
+        diffLines = lines.length;
+        added = lines.filter((line: string) => line.startsWith('+') && !line.startsWith('+++')).length;
+        removed = lines.filter((line: string) => line.startsWith('-') && !line.startsWith('---')).length;
+        totalAdditions += added;
+        totalDeletions += removed;
       }
+
+      fileInfos.push({
+        path: filePath,
+        type: getChangeTypeLabel(change.changeType),
+        added,
+        removed,
+        diffLines
+      });
     });
 
-    // START WITH SUMMARY AT TOP (token-efficient, LLM sees important info first)
-    let result = `## PR File Changes\n\n`;
-    result += `**${changes.length} files:** ${modifiedCount} modified, ${addedCount} added, ${deletedCount} deleted\n`;
-    result += `**+${totalAdditions}** | **-${totalDeletions}** lines\n\n`;
+    // Build output starting with compact summary
+    let result = `## PR File Changes (${changes.length} files)\n\n`;
+
+    // Compact summary line
+    const parts: string[] = [];
+    if (modifiedCount > 0) parts.push(`${modifiedCount} modified`);
+    if (addedCount > 0) parts.push(`${addedCount} added`);
+    if (deletedCount > 0) parts.push(`${deletedCount} deleted`);
+    result += `${parts.join(' • ')}`;
+
+    if (totalAdditions > 0 || totalDeletions > 0) {
+      result += ` | **+${totalAdditions} -${totalDeletions}** lines`;
+    }
+    result += `\n\n`;
 
     if (data.totalChanges && data.processedChanges && data.totalChanges > data.processedChanges) {
-      result += `⚠️ Showing ${data.processedChanges} of ${data.totalChanges} files\n\n`;
+      result += `> Showing ${data.processedChanges} of ${data.totalChanges} files\n\n`;
     }
 
-    result += `---\n\n`;
+    // Compact file list
+    result += `### Files\n`;
+    fileInfos.forEach((info, idx) => {
+      const changeIndicator = info.added > 0 || info.removed > 0 ? ` (+${info.added} -${info.removed})` : '';
+      result += `${idx + 1}. \`${info.path}\` - ${info.type}${changeIndicator}\n`;
+    });
 
+    result += `\n---\n\n`;
+    result += `### Diff Preview\n\n`;
+
+    // Show diff previews (truncated)
     changes.forEach((change: any, index: number) => {
       const filePath = change.item?.path || 'N/A';
-      const changeType = getChangeTypeString(change.changeType);
+      const info = fileInfos[index];
+      const changeIndicator = info.added > 0 || info.removed > 0 ? `(+${info.added} -${info.removed})` : '';
 
-      result += `### ${index + 1}. ${changeType} - \`${filePath}\`\n\n`;
+      result += `**${index + 1}. ${filePath}** ${changeIndicator}\n`;
 
-      // Calculate and show stats inline
       if (change.diffContent) {
         const lines = change.diffContent.split('\n');
-        const addedLines = lines.filter((line: string) => line.startsWith('+') && !line.startsWith('+++')).length;
-        const removedLines = lines.filter((line: string) => line.startsWith('-') && !line.startsWith('---')).length;
+        const totalLines = lines.length;
+        const truncated = totalLines > MAX_DIFF_LINES;
+        const displayLines = truncated ? lines.slice(0, MAX_DIFF_LINES) : lines;
 
-        if (addedLines > 0 || removedLines > 0) {
-          result += `**+${addedLines}** | **-${removedLines}** lines\n\n`;
+        result += `\`\`\`diff\n${displayLines.join('\n')}\n\`\`\`\n`;
+
+        if (truncated) {
+          const hiddenLines = totalLines - MAX_DIFF_LINES;
+          result += `> ... ${hiddenLines} more lines hidden\n`;
         }
-
-        // Use raw diff content (no formatting wrapper)
-        result += `\`\`\`diff\n${change.diffContent}\n\`\`\`\n\n`;
       } else {
-        result += `*No diff available*\n\n`;
+        result += `*No diff available*\n`;
       }
+
+      result += `\n`;
     });
 
     return result;

@@ -276,10 +276,10 @@ export class GitService extends AzureDevOpsService {
   public async getFileContent(params: GetFileContentParams): Promise<any> {
     try {
       const gitApi = await this.getGitApi();
-      
+
       // Resolve repository name/ID to actual repository ID
       const repositoryId = await this.resolveRepositoryId(params.repository);
-      
+
       // Get the file content as a stream
       const content = await gitApi.getItemContent(
         repositoryId,
@@ -287,9 +287,9 @@ export class GitService extends AzureDevOpsService {
         undefined,
         undefined
       );
-      
+
       let fileContent = '';
-      
+
       // Handle different content types
       if (Buffer.isBuffer(content)) {
         fileContent = content.toString('utf8');
@@ -299,8 +299,8 @@ export class GitService extends AzureDevOpsService {
         // Handle stream content
         const chunks: Buffer[] = [];
         const stream = content as Readable;
-        
-        return new Promise((resolve, reject) => {
+
+        fileContent = await new Promise((resolve, reject) => {
           const timeout = setTimeout(() => {
             stream.destroy();
             reject(new Error(`Stream timeout for ${params.path}`));
@@ -309,16 +309,13 @@ export class GitService extends AzureDevOpsService {
           stream.on('data', (chunk: Buffer) => {
             chunks.push(chunk);
           });
-          
+
           stream.on('end', () => {
             clearTimeout(timeout);
             const buffer = Buffer.concat(chunks);
-            const fileContent = buffer.toString('utf8');
-            resolve({
-              content: fileContent
-            });
+            resolve(buffer.toString('utf8'));
           });
-          
+
           stream.on('error', (error) => {
             clearTimeout(timeout);
             console.error(`Error reading stream for ${params.path}:`, error);
@@ -329,9 +326,35 @@ export class GitService extends AzureDevOpsService {
         // If it's some other type, return a placeholder
         fileContent = "[Content not available in this format]";
       }
-      
+
+      // Process line range if specified
+      const lines = fileContent.split('\n');
+      const totalLines = lines.length;
+
+      // Calculate effective start line (1-based, default to 1)
+      const startLine = Math.max(1, params.startLine || 1);
+
+      // Calculate effective line count (default to all, max 200)
+      const requestedLineCount = params.lineCount || totalLines;
+      const maxLineCount = Math.min(requestedLineCount, 200);
+
+      // Calculate effective end line
+      const endLine = Math.min(startLine + maxLineCount - 1, totalLines);
+
+      // Extract the requested range (convert to 0-based for array slicing)
+      const requestedLines = lines.slice(startLine - 1, endLine);
+      const slicedContent = requestedLines.join('\n');
+
       return {
-        content: fileContent
+        content: slicedContent,
+        metadata: {
+          startLine: startLine,
+          endLine: endLine,
+          totalLines: totalLines,
+          requestedStartLine: params.startLine || 1,
+          requestedLineCount: requestedLineCount,
+          actualLineCount: requestedLines.length
+        }
       };
     } catch (error) {
       console.error(`Error getting file content for ${params.path}:`, error);
@@ -389,6 +412,36 @@ export class GitService extends AzureDevOpsService {
     } catch (error) {
       console.error(`Error getting file content by objectId ${objectId}:`, error);
       return '[Content not available]';
+    }
+  }
+
+  /**
+   * Get the latest iteration number for a pull request
+   * Returns the most recent iteration that contains the latest changes
+   */
+  private async getLatestPullRequestIteration(repositoryId: string, pullRequestId: number): Promise<number> {
+    try {
+      const gitApi = await this.getGitApi();
+
+      // Get all iterations for the pull request
+      const iterations = await gitApi.getPullRequestIterations(
+        repositoryId,
+        pullRequestId,
+        this.config.project
+      );
+
+      if (!iterations || iterations.length === 0) {
+        // Fallback to iteration 1 if no iterations found
+        return 1;
+      }
+
+      // Return the latest iteration number
+      const latestIteration = Math.max(...iterations.map(i => i.id || 1));
+      return latestIteration;
+    } catch (error) {
+      console.error(`Error getting latest iteration for PR ${pullRequestId}:`, error);
+      // Fallback to iteration 1 if there's an error
+      return 1;
     }
   }
 
@@ -753,17 +806,67 @@ export class GitService extends AzureDevOpsService {
   public async getPullRequest(params: GetPullRequestParams): Promise<any> {
     try {
       const gitApi = await this.getGitApi();
-      
+
       // Resolve repository name/ID to actual repository ID
       const repositoryId = await this.resolveRepositoryId(params.repository);
-      
+
       const pullRequest = await gitApi.getPullRequest(
         repositoryId,
         params.pullRequestId,
         this.config.project
       );
-      
-      return pullRequest;
+
+      // Create enhanced response with work items
+      const enhancedPullRequest: any = { ...pullRequest };
+
+      // Fetch associated work items
+      try {
+        const workItemRefs = await gitApi.getPullRequestWorkItemRefs(
+          repositoryId,
+          params.pullRequestId,
+          this.config.project
+        );
+
+        if (workItemRefs && workItemRefs.length > 0) {
+          // Get work item IDs from references
+          const workItemIds = workItemRefs
+            .map(ref => {
+              // Extract work item ID from URL (format: .../workitems/123 or .../workItems/123)
+              const match = ref.url?.match(/workitems?\/(\d+)/i);
+              return match ? parseInt(match[1]) : null;
+            })
+            .filter((id): id is number => id !== null);
+
+          if (workItemIds.length > 0) {
+            // Fetch work item details
+            const witApi = await this.connection.getWorkItemTrackingApi();
+            const workItems = await witApi.getWorkItems(
+              workItemIds,
+              undefined,
+              undefined,
+              undefined,
+              undefined,
+              this.config.project
+            );
+
+            // Add work items to pull request object
+            enhancedPullRequest.workItems = workItems.map(wi => ({
+              id: wi.id,
+              title: wi.fields?.['System.Title'],
+              state: wi.fields?.['System.State'],
+              type: wi.fields?.['System.WorkItemType'],
+              assignedTo: wi.fields?.['System.AssignedTo']?.displayName,
+              url: wi.url
+            }));
+          }
+        }
+      } catch (workItemError) {
+        // Log but don't fail the PR fetch if work items can't be retrieved
+        console.error(`Error fetching work items for PR ${params.pullRequestId}:`, workItemError);
+        enhancedPullRequest.workItems = [];
+      }
+
+      return enhancedPullRequest;
     } catch (error) {
       console.error(`Error getting pull request ${params.pullRequestId}:`, error);
       throw error;
@@ -913,12 +1016,15 @@ export class GitService extends AzureDevOpsService {
       const gitApi = await this.getGitApi();
 
       let repositoryId: string = await this.resolveRepositoryId(params.repository);
-      
-      // First get the changes for the file to get the change tracking ID
+
+      // Get the latest iteration number
+      const latestIteration = await this.getLatestPullRequestIteration(repositoryId, params.pullRequestId);
+
+      // Get the changes for the file to get the change tracking ID
       const changes = await gitApi.getPullRequestIterationChanges(
         repositoryId,
         params.pullRequestId,
-        1, // First iteration
+        latestIteration,
         this.config.project
       );
 
@@ -1154,12 +1260,13 @@ Original error: ${errorMessage}`);
       
       // If path is provided, we need to get the changes for that specific file
       if (params.path) {
-        // Try to get changes from the latest iteration first, then fallback to iteration 1
+        // Get the latest iteration number
+        const iterationNumber = await this.getLatestPullRequestIteration(repositoryId, params.pullRequestId);
+
         let changes: any = null;
-        let iterationNumber = 1;
-        
+
         try {
-          // Try to get the latest changes (typically from the latest iteration)
+          // Get the changes from the latest iteration
           changes = await gitApi.getPullRequestIterationChanges(
             repositoryId,
             params.pullRequestId,
@@ -1246,12 +1353,14 @@ Original error: ${errorMessage}`);
       }
       
       // If no path is provided, get all changes with diffs
+      // Get the latest iteration number
+      const latestIteration = await this.getLatestPullRequestIteration(repositoryId, params.pullRequestId);
+
       const changes = await gitApi.getPullRequestIterationChanges(
         repositoryId,
         params.pullRequestId,
-        1, // First iteration
+        latestIteration,
         this.config.project
-        // Remove the second iteration parameter that might be causing issues
       );
 
       // Enhance with diff content for each change (smart selection to show variety)
@@ -1344,14 +1453,17 @@ Original error: ${errorMessage}`);
 
       // Resolve repository name/ID to actual repository ID
       const repositoryId = await this.resolveRepositoryId(params.repository);
-      
+
+      // Get the latest iteration number
+      const latestIteration = await this.getLatestPullRequestIteration(repositoryId, params.pullRequestId);
+
       const changes = await gitApi.getPullRequestIterationChanges(
         repositoryId,
         params.pullRequestId,
-        1, // First iteration
+        latestIteration,
         this.config.project
       );
-      
+
       return {
         totalChanges: changes.changeEntries?.length || 0,
         addedFiles: changes.changeEntries?.filter(entry => entry.changeType === VersionControlChangeType.Add).length || 0,
@@ -1373,14 +1485,17 @@ Original error: ${errorMessage}`);
 
       // Resolve repository name/ID to actual repository ID
       const repositoryId = await this.resolveRepositoryId(params.repository);
-      
+
+      // Get the latest iteration number
+      const latestIteration = await this.getLatestPullRequestIteration(repositoryId, params.pullRequestId);
+
       const changes = await gitApi.getPullRequestIterationChanges(
         repositoryId,
         params.pullRequestId,
-        1, // First iteration
+        latestIteration,
         this.config.project
       );
-      
+
       let changeEntries = changes.changeEntries || [];
       
       // Apply pagination if specified
@@ -1408,11 +1523,14 @@ Original error: ${errorMessage}`);
   public async getPullRequestChangedFilesList(repositoryId: string, pullRequestId: number): Promise<string[]> {
     try {
       const gitApi = await this.getGitApi();
-      
+
+      // Get the latest iteration number
+      const latestIteration = await this.getLatestPullRequestIteration(repositoryId, pullRequestId);
+
       const changes = await gitApi.getPullRequestIterationChanges(
         repositoryId,
         pullRequestId,
-        1, // First iteration
+        latestIteration,
         this.config.project
       );
 
@@ -1559,72 +1677,8 @@ Original error: ${errorMessage}`);
    * Add inline comment guidance to diff content with accurate line numbers
    */
   private addInlineCommentGuidance(diffContent: string, changeType: any): string {
-    const lines = diffContent.split('\n');
-    const enhancedLines: string[] = [];
-    
-    // Add header with comment guidance
-    if (changeType === VersionControlChangeType.Add) {
-      enhancedLines.push(`📄 NEW FILE - All lines available for inline comments`);
-      enhancedLines.push(`💬 Use line numbers 1, 2, 3... etc. for addPullRequestInlineComment`);
-    } else if (changeType === VersionControlChangeType.Delete) {
-      enhancedLines.push(`🗑️ DELETED FILE - Original line numbers available for comments`);
-      enhancedLines.push(`💬 Use original line numbers from deleted content for addPullRequestInlineComment`);
-    } else {
-      enhancedLines.push(`📝 MODIFIED FILE - Both original (left) and new (right) lines available for comments`);
-      enhancedLines.push(`💬 Look for [← line, left] and [← line, right] markers for addPullRequestInlineComment`);
-    }
-    enhancedLines.push(``);
-
-    let rightLineNumber = 1;
-    let leftLineNumber = 1;
-    let inHunk = false;
-    
-    for (const line of lines) {
-      if (line.startsWith('@@')) {
-        // Parse hunk header to get accurate starting line numbers
-        // Format: @@ -startLeft,countLeft +startRight,countRight @@
-        const hunkMatch = line.match(/@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/);
-        if (hunkMatch) {
-          leftLineNumber = parseInt(hunkMatch[1]);
-          rightLineNumber = parseInt(hunkMatch[3]);
-          inHunk = true;
-          
-          // Log for debugging
-          console.log(`Hunk: left starts at ${leftLineNumber}, right starts at ${rightLineNumber}`);
-        }
-        enhancedLines.push(line);
-        enhancedLines.push(`⬇️ Lines below can be commented on:`);
-      } else if (line.startsWith('+') && !line.startsWith('+++')) {
-        // Added line - can be commented on (right side)
-        enhancedLines.push(`${line}  [← ${rightLineNumber}, right]`);
-        rightLineNumber++;
-      } else if (line.startsWith('-') && !line.startsWith('---')) {
-        // Removed line - can be commented on (left side)  
-        enhancedLines.push(`${line}  [← ${leftLineNumber}, left]`);
-        leftLineNumber++;
-      } else if (line.startsWith(' ') && inHunk) {
-        // Context line - can be commented on (both sides, but we use right)
-        enhancedLines.push(`${line}  [← ${rightLineNumber}, right]`);
-        leftLineNumber++;
-        rightLineNumber++;
-      } else {
-        enhancedLines.push(line);
-      }
-    }
-    
-    // Add footer guidance
-    enhancedLines.push(``);
-    if (changeType === VersionControlChangeType.Add) {
-      enhancedLines.push(`📝 **Usage:** Any line number from 1 to total lines can be used for inline comments`);
-    } else if (changeType === VersionControlChangeType.Delete) {
-      enhancedLines.push(`📝 **Usage:** Use original line numbers for commenting on deleted content`);
-    } else {
-      enhancedLines.push(`📝 **Usage:** Look for [← line, left] or [← line, right] markers above for valid line numbers`);
-      enhancedLines.push(`💡 **Left numbers:** Comment on original content (what was removed)`);
-      enhancedLines.push(`💡 **Right numbers:** Comment on new content (what was added or unchanged)`);
-    }
-    enhancedLines.push(`💬 **Format:** addPullRequestInlineComment(position: {line: X, offset: 1})`);
-    
-    return enhancedLines.join('\n');
+    // Simply return the clean diff content without verbose annotations
+    // The diff itself is self-explanatory with standard +/- markers
+    return diffContent;
   }
 }

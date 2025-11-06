@@ -1,0 +1,1 @@
+- When returning for mcp tool, we have 2 variables (that returns content). 1) content (this should be human readable markdown representation) and 2) structuredContent which should be JSON data with full machine readable return value.

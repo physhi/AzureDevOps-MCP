@@ -692,10 +692,12 @@ async function main() {
     );
     
     allowedTools.has("getFileContent") && server.tool("getFileContent",
-      "Retrieve the content of a specific file from a Git repository with line numbers for easy reference. Returns formatted content with metadata including file size, line count, and truncation status. Files larger than 250 lines are automatically truncated with a suggestion to use getFileContentRanged for specific sections. Optionally specify a branch, tag, or commit to retrieve file content from a specific version. Supports both repository names and IDs.",
+      "Retrieve the content of a specific file from a Git repository with line numbers (arrow notation) for easy LLM comprehension. Returns formatted content with comprehensive metadata including line ranges, file size, and truncation status. Content is automatically truncated to 200 lines or 8K characters (whichever comes first) for optimal context usage. Use startLine and lineCount parameters to retrieve specific ranges for large files. Optionally specify a branch, tag, or commit to retrieve file content from a specific version. Supports both repository names and IDs.",
       {
         repository: z.string().describe("The repository name (e.g., 'MyProject') or ID (GUID) containing the file. Repository names are case-insensitive."),
         path: z.string().describe("The full path to the file within the repository, including filename and extension (e.g., 'src/utils/helpers.js')."),
+        startLine: z.number().optional().describe("Starting line number (1-based) to begin reading from. Default: 1. Use this to navigate through large files by requesting specific ranges (e.g., startLine=201 for lines starting at 201)."),
+        lineCount: z.number().optional().describe("Number of lines to return starting from startLine. Default: all lines, Maximum: 200 lines per request. Use this with startLine to retrieve specific sections of large files (e.g., lineCount=100 to get 100 lines)."),
         versionDescriptor: z.object({
           version: z.string().optional().describe("The name of the branch (e.g., 'main'), tag, or commit ID to retrieve the file from. Defaults to the default branch if not specified."),
           versionOptions: z.string().optional().describe("Additional version options: 'None', 'PreviousChange', 'FirstParent'. Usually leave this undefined."),
@@ -706,9 +708,7 @@ async function main() {
         const result = await gitTools.getFileContent(params);
         return {
           content: result.content,
-          rawData: result.rawData,
-          isError: result.isError,
-          structuredContent: result.structuredContent
+          isError: result.isError
         };
       }
     );
@@ -747,13 +747,11 @@ async function main() {
         const result = await gitTools.listPullRequests(params);
         return {
           content: result.content,
-          rawData: result.rawData,
-          isError: result.isError,
-          structuredContent: result.structuredContent
+          isError: result.isError
         };
       }
     );
-    
+
     allowedTools.has("createPullRequest") && server.tool("createPullRequest", 
       "Create a new pull request in a Git repository to propose merging changes from a source branch into a target branch. The PR will track the differences between branches and allow for code review. Optionally provide a description and assign reviewers to the PR.",
       {
@@ -846,16 +844,16 @@ async function main() {
 
     // Register new Pull Request Comment Tools
     allowedTools.has("addPullRequestInlineComment") && server.tool("addPullRequestInlineComment",
-      "Add an inline code comment to a specific line and character position in a file changed within a pull request. This creates a comment thread anchored to the exact line in the diff. The comment will appear in the Files tab of the PR at the specified position. The system automatically retrieves the correct change tracking ID from the PR diff.",
+      "Add an inline code comment anchored to a SPECIFIC LINE of code in a file. The comment appears directly on that line in the Files tab. WHEN TO USE: Point out specific code issues, suggest improvements to a particular line, or ask questions about specific implementation details. EXAMPLES: 'This variable should be null-checked here', 'Consider using async/await on line 45', 'Why is this hardcoded?'. The system automatically retrieves the correct change tracking ID from the PR diff.",
       {
         repository: z.string().describe("The repository name (e.g., 'MyProject') or ID (GUID) containing the pull request. Repository names are case-insensitive."),
         pullRequestId: z.number().describe("The numeric ID of the pull request where the comment will be added. This is the PR number shown in the Azure DevOps UI."),
-        comment: z.string().describe("The text content of the comment to add. Can include markdown formatting."),
+        comment: z.string().describe("The text content of the comment to add. Can include markdown formatting. Should be specific to the line of code being commented on."),
         position: z.object({
-          line: z.number().describe("The 1-based line number in the file where the comment should be anchored. Must be a line visible in the PR diff."),
+          line: z.number().describe("The 1-based line number in the file where the comment should be anchored. Must be a line visible in the PR diff (added, removed, or context line)."),
           offset: z.number().describe("The character offset within the line where the comment should be anchored. Typically use 1 for beginning of line.")
         }).describe("The exact position within the file where the comment will be anchored. Both line and offset are required."),
-        path: z.string().describe("The full path to the file within the repository that the comment relates to. Must be a file changed in the PR.")
+        path: z.string().describe("The full path to the file within the repository that the comment relates to. Must be a file changed in the PR (e.g., '/src/Services/UserService.cs').")
       },
       async (params, extra) => {
         const result = await gitTools.addPullRequestInlineComment(params);
@@ -868,12 +866,12 @@ async function main() {
     );
 
     allowedTools.has("addPullRequestFileComment") && server.tool("addPullRequestFileComment",
-      "Add a comment at the file level in a pull request, without anchoring to a specific line. This creates a comment thread associated with the entire file rather than a specific code line. The comment will appear at the file level in the Files tab of the PR. Use this when your feedback applies to the entire file.",
+      "Add a comment about an ENTIRE FILE (not a specific line). The comment appears at the file level in the Files tab. WHEN TO USE: Discuss overall file structure, architecture decisions, naming conventions, or when feedback applies to the whole file. EXAMPLES: 'This file should be split into smaller modules', 'Consider moving this to a different namespace', 'Great refactoring of this entire service!', 'This file needs unit tests'.",
       {
         repository: z.string().describe("The repository name (e.g., 'MyProject') or ID (GUID) containing the pull request. Repository names are case-insensitive."),
         pullRequestId: z.number().describe("The numeric ID of the pull request where the comment will be added. This is the PR number shown in the Azure DevOps UI."),
-        path: z.string().describe("The full path to the file within the repository that the comment relates to. Must be a file changed in the PR."),
-        comment: z.string().describe("The text content of the comment to add. Can include markdown formatting.")
+        path: z.string().describe("The full path to the file within the repository that the comment relates to. Must be a file changed in the PR (e.g., '/src/Models/User.cs')."),
+        comment: z.string().describe("The text content of the comment about the entire file. Can include markdown formatting. Should address file-level concerns, not specific lines.")
       },
       async (params, extra) => {
         const result = await gitTools.addPullRequestFileComment(params);
@@ -886,11 +884,11 @@ async function main() {
     );
 
     allowedTools.has("addPullRequestComment") && server.tool("addPullRequestComment",
-      "Add a general comment to a pull request that is not tied to any specific file or code line. This creates a comment thread in the Overview tab of the PR. Use this for general feedback about the PR as a whole, rather than specific code changes.",
+      "Add a GENERAL comment about the entire pull request (not tied to any file or code). Appears in the Overview/Conversation tab. WHEN TO USE: Provide overall feedback, discuss architecture, approve/reject the PR, ask general questions, or comment on the PR description. EXAMPLES: 'This feature looks great! LGTM after CI passes', 'Can you add integration tests for this feature?', 'What's the performance impact of these changes?', 'Please update the documentation before merging'.",
       {
         repository: z.string().describe("The repository name (e.g., 'MyProject') or ID (GUID) containing the pull request. Repository names are case-insensitive."),
         pullRequestId: z.number().describe("The numeric ID of the pull request where the comment will be added. This is the PR number shown in the Azure DevOps UI."),
-        comment: z.string().describe("The text content of the comment to add. Can include markdown formatting for rich text, code blocks, etc.")
+        comment: z.string().describe("The text content of the general comment about the PR. Can include markdown formatting for rich text, code blocks, links, etc. Should address PR-level concerns, not specific files or lines.")
       },
       async (params, extra) => {
         const result = await gitTools.addPullRequestComment(params);

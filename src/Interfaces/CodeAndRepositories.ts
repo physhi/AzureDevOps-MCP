@@ -62,6 +62,8 @@ export interface BrowseRepositoryParams {
 export interface GetFileContentParams {
   repository: string;
   path: string;
+  startLine?: number;      // 1-based line number to start from (default: 1)
+  lineCount?: number;      // Number of lines to return (default: all, max 200)
   versionDescriptor?: {
     version?: string;
     versionOptions?: string;
