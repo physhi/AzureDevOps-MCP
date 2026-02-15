@@ -24,6 +24,14 @@ import {
   GetAllPullRequestChangesParams
 } from '../Interfaces/CodeAndRepositories';
 import getClassMethods from "../utils/getClassMethods";
+import {
+  formatRelativeDate,
+  formatFullDate,
+  getChangeTypeString,
+  getPrStatusString,
+  truncateText,
+  markdownTable
+} from '../utils/formatHelpers';
 
 export class GitTools {
   private gitService: GitService;
@@ -79,7 +87,16 @@ export class GitTools {
   public async getRepository(params: GetRepositoryParams): Promise<McpResponse> {
     try {
       const repository = await this.gitService.getRepository(params);
-      return formatMcpResponse(repository);
+
+      let md = `## Repository: ${repository.name || 'Unknown'}\n\n`;
+      if (repository.id) md += `**ID:** ${repository.id}\n`;
+      md += `**Default Branch:** ${repository.defaultBranch?.replace('refs/heads/', '') || 'N/A'}\n`;
+      if (repository.size) md += `**Size:** ${(repository.size / 1024).toFixed(1)} KB\n`;
+      if (repository.remoteUrl) md += `**Clone URL:** ${repository.remoteUrl}\n`;
+      if (repository.webUrl) md += `**Web URL:** ${repository.webUrl}\n`;
+      if (repository.project?.name) md += `**Project:** ${repository.project.name}\n`;
+
+      return formatMcpResponse(repository, md, false, true);
     } catch (error) {
       console.error('Error in getRepository tool:', error);
       return formatErrorResponse(error);
@@ -92,7 +109,13 @@ export class GitTools {
   public async createRepository(params: CreateRepositoryParams): Promise<McpResponse> {
     try {
       const repository = await this.gitService.createRepository(params);
-      return formatMcpResponse(repository);
+
+      let md = `## ✅ Repository Created\n\n**${repository.name || params.name}**\n`;
+      if (repository.id) md += `**ID:** ${repository.id}\n`;
+      if (repository.remoteUrl) md += `**Clone URL:** ${repository.remoteUrl}\n`;
+      if (repository.webUrl) md += `**Web URL:** ${repository.webUrl}\n`;
+
+      return formatMcpResponse(repository, md, false, true);
     } catch (error) {
       console.error('Error in createRepository tool:', error);
       return formatErrorResponse(error);
@@ -105,7 +128,23 @@ export class GitTools {
   public async listBranches(params: ListBranchesParams): Promise<McpResponse> {
     try {
       const branches = await this.gitService.listBranches(params);
-      return formatMcpResponse(branches);
+      const items = Array.isArray(branches) ? branches : [];
+
+      if (items.length === 0) {
+        return formatMcpResponse(branches, `## Branches\n\nNo branches found in repository \`${params.repository}\`.\n\n💡 The repository may be empty.`);
+      }
+
+      let md = `## Branches\n\n**${items.length} branch${items.length !== 1 ? 'es' : ''}** in \`${params.repository}\`\n\n`;
+      const rows = items.map((b: any) => {
+        const name = b.name?.replace('refs/heads/', '') || 'N/A';
+        const shortCommit = b.commit?.commitId?.substring(0, 8) || b.objectId?.substring(0, 8) || '-';
+        const ahead = b.aheadCount != null ? String(b.aheadCount) : '-';
+        const behind = b.behindCount != null ? String(b.behindCount) : '-';
+        return [name, `\`${shortCommit}\``, ahead, behind];
+      });
+      md += markdownTable(['Name', 'Commit', 'Ahead', 'Behind'], rows);
+
+      return formatMcpResponse(branches, md, false, true);
     } catch (error) {
       console.error('Error in listBranches tool:', error);
       return formatErrorResponse(error);
@@ -118,7 +157,21 @@ export class GitTools {
   public async searchCode(params: SearchCodeParams): Promise<McpResponse> {
     try {
       const items = await this.gitService.searchCode(params);
-      return formatMcpResponse(items);
+      const results = Array.isArray(items) ? items : (items?.results || items?.value || []);
+
+      if (results.length === 0) {
+        return formatMcpResponse(items, `## Code Search\n\nNo results found for "${params.searchText || ''}".\n\n💡 Try different keywords or check the repository name.`);
+      }
+
+      let md = `## Code Search Results\n\n**${results.length} result${results.length !== 1 ? 's' : ''}**\n\n`;
+      const rows = results.map((r: any) => [
+        r.path || r.fileName || 'N/A',
+        r.fileName || r.path?.split('/').pop() || '-',
+        r.fileExtension || r.path?.split('.').pop() || '-'
+      ]);
+      md += markdownTable(['Path', 'File', 'Extension'], rows);
+
+      return formatMcpResponse(items, md, false, true);
     } catch (error) {
       console.error('Error in searchCode tool:', error);
       return formatErrorResponse(error);
@@ -131,7 +184,33 @@ export class GitTools {
   public async browseRepository(params: BrowseRepositoryParams): Promise<McpResponse> {
     try {
       const items = await this.gitService.browseRepository(params);
-      return formatMcpResponse(items);
+      const entries = Array.isArray(items) ? items : (items?.value || []);
+
+      const path = params.path || '/';
+      if (entries.length === 0) {
+        return formatMcpResponse(items, `## Browse: \`${path}\`\n\nNo items found at this path.\n\n💡 Check the path or use \`listBranches\` to verify the branch.`);
+      }
+
+      const folders = entries.filter((e: any) => e.isFolder || e.gitObjectType === 'tree');
+      const files = entries.filter((e: any) => !e.isFolder && e.gitObjectType !== 'tree');
+
+      let md = `## Browse: \`${path}\`\n\n`;
+      md += `**${entries.length} items** | ${folders.length} folders, ${files.length} files\n\n`;
+      md += '```\n';
+
+      // Folders first, then files
+      folders.forEach((f: any) => {
+        const name = f.path?.split('/').pop() || f.name || 'N/A';
+        md += `📁 ${name}/\n`;
+      });
+      files.forEach((f: any) => {
+        const name = f.path?.split('/').pop() || f.name || 'N/A';
+        md += `📄 ${name}\n`;
+      });
+
+      md += '```\n';
+
+      return formatMcpResponse(items, md, false, true);
     } catch (error) {
       console.error('Error in browseRepository tool:', error);
       return formatErrorResponse(error);
@@ -403,46 +482,6 @@ export class GitTools {
       return `## Pull Requests\n\n**No pull requests found** in repository: ${repository}`;
     }
 
-    // Helper function for status
-    const getStatusString = (status: number): string => {
-      const statusMap: { [key: number]: string } = {
-        1: '🔄 Active',
-        2: '✅ Completed',
-        3: '🔀 Abandoned',
-        4: '❓ Not Set'
-      };
-      return statusMap[status] || 'Unknown';
-    };
-
-    // Helper function to format relative date
-    const formatRelativeDate = (dateString: string): string => {
-      const now = new Date();
-      const prDate = new Date(dateString);
-      const diffMs = now.getTime() - prDate.getTime();
-      const diffMinutes = Math.floor(diffMs / (1000 * 60));
-      const diffHours = Math.floor(diffMs / (1000 * 60 * 60));
-      const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
-      const diffWeeks = Math.floor(diffDays / 7);
-      const diffMonths = Math.floor(diffDays / 30);
-
-      if (diffMinutes < 1) return 'just now';
-      if (diffMinutes < 60) return `${diffMinutes}m ago`;
-      if (diffHours < 24) return `${diffHours}h ago`;
-      if (diffDays < 7) return `${diffDays}d ago`;
-      if (diffWeeks < 4) return `${diffWeeks}w ago`;
-      return `${diffMonths}mo ago`;
-    };
-
-    // Helper function to format full date
-    const formatFullDate = (dateString: string): string => {
-      const prDate = new Date(dateString);
-      return prDate.toLocaleDateString('en-US', {
-        month: 'short',
-        day: 'numeric',
-        year: 'numeric'
-      });
-    };
-
     // Calculate summary statistics upfront
     const activeCount = data.filter((pr: any) => pr.status === 1).length;
     const completedCount = data.filter((pr: any) => pr.status === 2).length;
@@ -465,7 +504,7 @@ export class GitTools {
       const prId = pr.pullRequestId;
       const title = pr.title || 'No Title';
       const author = pr.createdBy?.displayName || pr.createdBy?.uniqueName || 'Unknown';
-      const status = getStatusString(pr.status);
+      const status = getPrStatusString(pr.status);
       const sourceBranch = pr.sourceRefName?.replace('refs/heads/', '') || '?';
       const targetBranch = pr.targetRefName?.replace('refs/heads/', '') || '?';
       const isDraft = pr.isDraft || false;
@@ -501,7 +540,19 @@ export class GitTools {
   public async createPullRequest(params: CreatePullRequestParams): Promise<McpResponse> {
     try {
       const pullRequest = await this.gitService.createPullRequest(params);
-      return formatMcpResponse(pullRequest);
+
+      const sourceBranch = params.sourceRefName?.replace('refs/heads/', '') || '?';
+      const targetBranch = params.targetRefName?.replace('refs/heads/', '') || '?';
+
+      let md = `## ✅ Pull Request Created\n\n`;
+      md += `**PR #${pullRequest.pullRequestId}** - ${pullRequest.title || params.title || 'N/A'}\n`;
+      md += `**Branches:** \`${sourceBranch}\` → \`${targetBranch}\`\n`;
+      if (params.reviewers && params.reviewers.length > 0) {
+        md += `**Reviewers:** ${params.reviewers.map((r: any) => r.displayName || r.id || r).join(', ')}\n`;
+      }
+      if (pullRequest.url) md += `**URL:** ${pullRequest.url}\n`;
+
+      return formatMcpResponse(pullRequest, md, false, true);
     } catch (error) {
       console.error('Error in createPullRequest tool:', error);
       return formatErrorResponse(error);
@@ -736,7 +787,10 @@ TargetCommitId: ${pullRequest.lastMergeTargetCommit?.commitId || 'N/A'}
   public async approvePullRequest(params: ApprovePullRequestParams): Promise<McpResponse> {
     try {
       const result = await this.gitService.approvePullRequest(params);
-      return formatMcpResponse(result);
+
+      const md = `## ✅ Pull Request Approved\n\n**PR #${params.pullRequestId}** in \`${params.repository}\` has been approved.`;
+
+      return formatMcpResponse(result, md, false, true);
     } catch (error) {
       console.error('Error in approvePullRequest tool:', error);
       return formatErrorResponse(error);
@@ -749,7 +803,12 @@ TargetCommitId: ${pullRequest.lastMergeTargetCommit?.commitId || 'N/A'}
   public async mergePullRequest(params: MergePullRequestParams): Promise<McpResponse> {
     try {
       const result = await this.gitService.mergePullRequest(params);
-      return formatMcpResponse(result);
+
+      let md = `## ✅ Pull Request Merged\n\n**PR #${params.pullRequestId}** in \`${params.repository}\``;
+      if (params.mergeStrategy) md += ` | Strategy: ${params.mergeStrategy}`;
+      md += '\n';
+
+      return formatMcpResponse(result, md, false, true);
     } catch (error) {
       console.error('Error in mergePullRequest tool:', error);
       return formatErrorResponse(error);
@@ -859,7 +918,21 @@ TargetCommitId: ${pullRequest.lastMergeTargetCommit?.commitId || 'N/A'}
   public async getPullRequestChangesCount(params: GetPullRequestChangesCountParams): Promise<McpResponse> {
     try {
       const count = await this.gitService.getPullRequestChangesCount(params);
-      return formatMcpResponse(count);
+
+      const total = count?.totalFiles || count?.total || count?.count || 0;
+      const modified = count?.modified || 0;
+      const added = count?.added || 0;
+      const deleted = count?.deleted || 0;
+
+      let md = `## PR #${params.pullRequestId} Changes\n\n`;
+      md += `**${total} files**`;
+      const parts: string[] = [];
+      if (modified > 0) parts.push(`${modified} modified`);
+      if (added > 0) parts.push(`${added} added`);
+      if (deleted > 0) parts.push(`${deleted} deleted`);
+      if (parts.length > 0) md += `: ${parts.join(', ')}`;
+
+      return formatMcpResponse(count, md, false, true);
     } catch (error) {
       console.error('Error in getPullRequestChangesCount tool:', error);
       return formatErrorResponse(error);
@@ -917,16 +990,6 @@ TargetCommitId: ${pullRequest.lastMergeTargetCommit?.commitId || 'N/A'}
     }
 
     const changes = data.changes;
-
-    // Helper function to convert change type to readable string with emoji
-    const getChangeTypeString = (changeType: number): string => {
-      switch (changeType) {
-        case 1: return '🟢 Added';
-        case 2: return '🟡 Modified';
-        case 3: return '🔴 Deleted';
-        default: return '❓ Unknown';
-      }
-    };
 
     // Calculate summary statistics upfront (to put at top)
     const addedCount = changes.filter((c: any) => c.changeType === 1).length;

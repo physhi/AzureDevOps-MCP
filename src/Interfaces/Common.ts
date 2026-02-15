@@ -1,3 +1,5 @@
+import { isStructuredContentEnabled } from '../config';
+
 /**
  * Interface for MCP-compatible response format
  */
@@ -35,8 +37,8 @@ export function formatMcpResponse(data: any, message?: string, isError = false, 
       isError
     };
 
-    // Add structured content if requested
-    if (includeStructuredContent && data) {
+    // Add structured content if requested AND env toggle is enabled
+    if (includeStructuredContent && isStructuredContentEnabled() && data) {
       response.structuredContent = {
         format: "application/json",
         data: data
@@ -61,8 +63,8 @@ export function formatMcpResponse(data: any, message?: string, isError = false, 
     isError
   };
 
-  // Add structured content if requested
-  if (includeStructuredContent && data) {
+  // Add structured content if requested AND env toggle is enabled
+  if (includeStructuredContent && isStructuredContentEnabled() && data) {
     response.structuredContent = {
       format: "application/json",
       data: data

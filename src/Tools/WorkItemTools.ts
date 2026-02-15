@@ -15,6 +15,17 @@ import {
   BulkWorkItemParams
 } from '../Interfaces/WorkItems';
 import getClassMethods from "../utils/getClassMethods";
+import {
+  formatRelativeDate,
+  formatFullDate,
+  getWorkItemTypeEmoji,
+  getStateEmoji,
+  getPriorityEmoji,
+  formatEffort,
+  truncateText,
+  stripHtml,
+  markdownTable
+} from '../utils/formatHelpers';
 
 export class WorkItemTools {
   private workItemService: WorkItemService;
@@ -29,7 +40,22 @@ export class WorkItemTools {
   public async listWorkItems(params: { query: string }): Promise<McpResponse> {
     try {
       const response = await this.workItemService.listWorkItems(params.query);
-      return formatMcpResponse(response, `Found ${response.workItems?.length || 0} work items.`);
+      const items = response.workItems || [];
+
+      if (items.length === 0) {
+        return formatMcpResponse(response, `## Work Items\n\nNo work items found for the given WIQL query.\n\n💡 Check your query syntax or broaden the filter criteria.`);
+      }
+
+      let md = `## Work Items\n\n**${items.length} item${items.length !== 1 ? 's' : ''}** from WIQL query\n\n`;
+      const rows = items.map((wi: any) => {
+        const id = wi.id || 'N/A';
+        const url = wi.url || '-';
+        return [`#${id}`, url !== '-' ? `[Link](${url})` : '-'];
+      });
+      md += markdownTable(['ID', 'URL'], rows);
+      md += `\n\n💡 Use \`getWorkItemById\` with any ID to see full details.`;
+
+      return formatMcpResponse(response, md, false, true);
     } catch (error) {
       console.error('Error in listWorkItems tool:', error);
       return formatErrorResponse(error);
@@ -64,74 +90,12 @@ export class WorkItemTools {
       };
     }
 
-    // Helper function to format dates (simplified)
-    const formatDate = (dateString: string): string => {
-      if (!dateString) return 'Not set';
-      try {
-        const date = new Date(dateString);
-        const now = new Date();
-        const diffMs = now.getTime() - date.getTime();
-        const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
-        const formatted = date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-        return `${formatted} (${diffDays}d ago)`;
-      } catch {
-        return dateString;
-      }
-    };
-
-    // Helper function to get work item type emoji
-    const getWorkItemTypeEmoji = (type: string): string => {
-      const typeMap: { [key: string]: string } = {
-        'Epic': '🎯',
-        'Feature': '🚀',
-        'User Story': '📖',
-        'Task': '✅',
-        'Bug': '🐛',
-        'Test Case': '🧪',
-        'Issue': '⚠️'
-      };
-      return typeMap[type] || '📋';
-    };
-
-    // Helper function to get state emoji
-    const getStateEmoji = (state: string): string => {
-      const stateMap: { [key: string]: string } = {
-        'New': '🆕',
-        'Active': '🔄',
-        'In Progress': '⚡',
-        'Resolved': '✅',
-        'Closed': '✅',
-        'Done': '✅',
-        'Removed': '❌',
-        'To Do': '📋',
-        'Doing': '⚡',
-        'Testing': '🧪'
-      };
-      return stateMap[state] || '📌';
-    };
-
-    // Helper function to get priority emoji
-    const getPriorityEmoji = (priority: number): string => {
-      if (priority === 1) return '🔴'; // Critical
-      if (priority === 2) return '🟡'; // High
-      if (priority === 3) return '🟢'; // Medium
-      if (priority === 4) return '🔵'; // Low
-      return '⚪'; // Unset
-    };
-
-    // Helper function to format effort tracking
-    const formatEffort = (hours: number | null | undefined): string => {
-      if (!hours || hours === 0) return '0h';
-      if (hours < 1) return `${Math.round(hours * 60)}m`;
-      return `${hours}h`;
-    };
-
     // Helper function to parse and format description
     const formatDescription = (description: string): string => {
       if (!description) return 'No description provided';
 
       // Remove HTML tags for basic cleanup
-      let cleanDesc = description.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
+      let cleanDesc = stripHtml(description);
 
       // Look for acceptance criteria patterns
       const acMatch = cleanDesc.match(/acceptance criteria:?\s*(.*?)(?:\n\n|\*\*|$)/i);
@@ -172,8 +136,8 @@ export class WorkItemTools {
 
     // Metadata: one-line format instead of table
     const createdBy = workItem.createdBy?.displayName || 'Unknown';
-    const createdDate = formatDate(workItem.createdDate);
-    const updatedDate = formatDate(workItem.changedDate);
+    const createdDate = workItem.createdDate ? `${formatFullDate(workItem.createdDate)} (${formatRelativeDate(workItem.createdDate)})` : 'Not set';
+    const updatedDate = workItem.changedDate ? `${formatFullDate(workItem.changedDate)} (${formatRelativeDate(workItem.changedDate)})` : 'Not set';
     result += `**Area:** ${workItem.areaPath || 'Not set'} | **Created:** ${createdDate} by ${createdBy} | **Updated:** ${updatedDate}\n\n`;
     result += `---\n\n`;
 
@@ -310,59 +274,6 @@ export class WorkItemTools {
       };
     }
 
-    // Helper functions
-    const formatDate = (dateString: string): string => {
-      if (!dateString) return 'Unknown';
-      try {
-        const date = new Date(dateString);
-        const now = new Date();
-        const diffDays = Math.floor((now.getTime() - date.getTime()) / (1000 * 60 * 60 * 24));
-        return `${diffDays}d ago`;
-      } catch {
-        return 'Unknown';
-      }
-    };
-
-    const getWorkItemTypeEmoji = (type: string): string => {
-      const typeMap: { [key: string]: string } = {
-        'Epic': '🎯',
-        'Feature': '🚀',
-        'User Story': '📖',
-        'Task': '✅',
-        'Bug': '🐛',
-        'Test Case': '🧪',
-        'Issue': '⚠️'
-      };
-      return typeMap[type] || '📋';
-    };
-
-    const getStateEmoji = (state: string): string => {
-      const stateMap: { [key: string]: string } = {
-        'New': '🆕',
-        'Active': '🔄',
-        'In Progress': '⚡',
-        'Resolved': '✅',
-        'Closed': '✅',
-        'Done': '✅',
-        'Removed': '❌',
-        'To Do': '📋',
-        'Doing': '⚡',
-        'Testing': '🧪'
-      };
-      return stateMap[state] || '📌';
-    };
-
-    const formatEffort = (hours: number | null | undefined): string => {
-      if (!hours || hours === 0) return '-';
-      if (hours < 1) return `${Math.round(hours * 60)}m`;
-      return `${hours}h`;
-    };
-
-    const truncateTitle = (title: string, maxLength: number = 50): string => {
-      if (!title) return 'No title';
-      return title.length > maxLength ? title.substring(0, maxLength) + '...' : title;
-    };
-
     // Calculate summary statistics upfront
     const typeSummary = results.workItems.reduce((acc: any, item: any) => {
       acc[item.workItemType] = (acc[item.workItemType] || 0) + 1;
@@ -402,9 +313,9 @@ export class WorkItemTools {
     results.workItems.forEach((workItem: any) => {
       const typeEmoji = getWorkItemTypeEmoji(workItem.workItemType);
       const stateEmoji = getStateEmoji(workItem.state);
-      const assignedTo = workItem.assignedTo?.displayName.split(' ')[0] || 'Unassigned';
+      const assignedTo = workItem.assignedTo?.displayName?.split(' ')[0] || 'Unassigned';
 
-      result += `| **#${workItem.id}** | ${truncateTitle(workItem.title)} | ${typeEmoji} ${workItem.workItemType} | ${stateEmoji} ${workItem.state} | ${assignedTo} |\n`;
+      result += `| **#${workItem.id}** | ${truncateText(workItem.title)} | ${typeEmoji} ${workItem.workItemType} | ${stateEmoji} ${workItem.state} | ${assignedTo} |\n`;
     });
 
     result += `\n---\n\n`;
@@ -420,7 +331,7 @@ export class WorkItemTools {
     const recentItems = results.workItems
       .sort((a: any, b: any) => new Date(b.changedDate).getTime() - new Date(a.changedDate).getTime())
       .slice(0, 3);
-    const recentList = recentItems.map((i: any) => `#${i.id} (${formatDate(i.changedDate)})`).join(', ');
+    const recentList = recentItems.map((i: any) => `#${i.id} (${formatRelativeDate(i.changedDate)})`).join(', ');
     result += `**Recently Updated:** ${recentList}\n\n`;
 
     result += `---\n`;
@@ -461,7 +372,22 @@ export class WorkItemTools {
   public async getRecentlyUpdatedWorkItems(params: RecentWorkItemsParams): Promise<McpResponse> {
     try {
       const results = await this.workItemService.getRecentWorkItems(params);
-      return formatMcpResponse(results, `Found ${results.workItems?.length || 0} recently updated work items`);
+      const items = results.workItems || [];
+
+      if (items.length === 0) {
+        return formatMcpResponse(results, `## Recently Updated Work Items\n\nNo recently updated work items found.\n\n💡 Try increasing the time range or check project permissions.`);
+      }
+
+      let md = `## Recently Updated Work Items\n\n**${items.length} item${items.length !== 1 ? 's' : ''}**\n\n`;
+      const rows = items.map((wi: any) => {
+        const id = wi.id || 'N/A';
+        const url = wi.url || '-';
+        return [`#${id}`, url !== '-' ? `[Link](${url})` : '-'];
+      });
+      md += markdownTable(['ID', 'URL'], rows);
+      md += `\n\n💡 Use \`getWorkItemById\` with any ID to see full details.`;
+
+      return formatMcpResponse(results, md, false, true);
     } catch (error) {
       console.error('Error in getRecentlyUpdatedWorkItems tool:', error);
       return formatErrorResponse(error);
@@ -474,7 +400,22 @@ export class WorkItemTools {
   public async getMyWorkItems(params: MyWorkItemsParams): Promise<McpResponse> {
     try {
       const results = await this.workItemService.getMyWorkItems(params);
-      return formatMcpResponse(results, `Found ${results.workItems?.length || 0} work items assigned to you`);
+      const items = results.workItems || [];
+
+      if (items.length === 0) {
+        return formatMcpResponse(results, `## My Work Items\n\nNo work items assigned to you.\n\n💡 Use \`searchWorkItems\` or \`listWorkItems\` to find items across the project.`);
+      }
+
+      let md = `## My Work Items\n\n**${items.length} item${items.length !== 1 ? 's' : ''}** assigned to you\n\n`;
+      const rows = items.map((wi: any) => {
+        const id = wi.id || 'N/A';
+        const url = wi.url || '-';
+        return [`#${id}`, url !== '-' ? `[Link](${url})` : '-'];
+      });
+      md += markdownTable(['ID', 'URL'], rows);
+      md += `\n\n💡 Use \`getWorkItemById\` with any ID to see full details.`;
+
+      return formatMcpResponse(results, md, false, true);
     } catch (error) {
       console.error('Error in getMyWorkItems tool:', error);
       return formatErrorResponse(error);
@@ -487,7 +428,18 @@ export class WorkItemTools {
   public async createWorkItem(params: CreateWorkItemParams): Promise<McpResponse> {
     try {
       const workItem = await this.workItemService.createWorkItem(params);
-      return formatMcpResponse(workItem, `Created work item: ${workItem.id}`, false, true);
+
+      const typeEmoji = getWorkItemTypeEmoji(params.workItemType);
+      let md = `## ✅ Work Item Created\n\n`;
+      md += `**#${workItem.id}** ${typeEmoji} ${params.workItemType}`;
+      if (workItem.fields?.['System.State']) md += ` | 🆕 ${workItem.fields['System.State']}`;
+      if (params.assignedTo) md += ` | 👤 ${params.assignedTo}`;
+      md += `\n`;
+      md += `**Title:** ${params.title}\n`;
+      if (params.iterationPath) md += `**Sprint:** ${params.iterationPath}\n`;
+      if (params.areaPath) md += `**Area:** ${params.areaPath}\n`;
+
+      return formatMcpResponse(workItem, md, false, true);
     } catch (error) {
       console.error('Error in createWorkItem tool:', error);
       return formatErrorResponse(error);
@@ -500,7 +452,15 @@ export class WorkItemTools {
   public async updateWorkItem(params: UpdateWorkItemParams): Promise<McpResponse> {
     try {
       const workItem = await this.workItemService.updateWorkItem(params);
-      return formatMcpResponse(workItem, `Updated work item: ${params.id}`, false, true);
+
+      let md = `## ✅ Work Item Updated\n\n**#${params.id}** updated\n\n`;
+      const fields = params.fields || {};
+      const changedKeys = Object.keys(fields);
+      if (changedKeys.length > 0) {
+        md += `**Changed fields:** ${changedKeys.join(', ')}\n`;
+      }
+
+      return formatMcpResponse(workItem, md, false, true);
     } catch (error) {
       console.error('Error in updateWorkItem tool:', error);
       return formatErrorResponse(error);
@@ -513,7 +473,10 @@ export class WorkItemTools {
   public async addWorkItemComment(params: AddWorkItemCommentParams): Promise<McpResponse> {
     try {
       const comment = await this.workItemService.addWorkItemComment(params);
-      return formatMcpResponse(comment, `Comment added to work item: ${params.id}`, false, true);
+
+      const md = `## ✅ Comment Added\n\n**Work Item:** #${params.id}\n\n> ${truncateText(params.text, 100)}`;
+
+      return formatMcpResponse(comment, md, false, true);
     } catch (error) {
       console.error('Error in addWorkItemComment tool:', error);
       return formatErrorResponse(error);
@@ -526,7 +489,12 @@ export class WorkItemTools {
   public async updateWorkItemState(params: UpdateWorkItemStateParams): Promise<McpResponse> {
     try {
       const workItem = await this.workItemService.updateWorkItemState(params);
-      return formatMcpResponse(workItem, `Updated state of work item ${params.id} to "${params.state}"`);
+      const stateEmoji = getStateEmoji(params.state);
+
+      let md = `## ✅ State Updated\n\n**#${params.id}** → ${stateEmoji} ${params.state}`;
+      if (params.comment) md += `\n\n> ${truncateText(params.comment, 100)}`;
+
+      return formatMcpResponse(workItem, md, false, true);
     } catch (error) {
       console.error('Error in updateWorkItemState tool:', error);
       return formatErrorResponse(error);
@@ -539,7 +507,10 @@ export class WorkItemTools {
   public async assignWorkItem(params: AssignWorkItemParams): Promise<McpResponse> {
     try {
       const workItem = await this.workItemService.assignWorkItem(params);
-      return formatMcpResponse(workItem, `Assigned work item ${params.id} to ${params.assignedTo}`);
+
+      const md = `## ✅ Work Item Assigned\n\n**#${params.id}** → 👤 ${params.assignedTo}`;
+
+      return formatMcpResponse(workItem, md, false, true);
     } catch (error) {
       console.error('Error in assignWorkItem tool:', error);
       return formatErrorResponse(error);
@@ -552,7 +523,10 @@ export class WorkItemTools {
   public async createLink(params: CreateLinkParams): Promise<McpResponse> {
     try {
       const workItem = await this.workItemService.createLink(params);
-      return formatMcpResponse(workItem, `Created ${params.linkType} link from work item ${params.sourceId} to ${params.targetId}`, false, true);
+
+      const md = `## ✅ Link Created\n\n**#${params.sourceId}** ↔ **#${params.targetId}** (${params.linkType})`;
+
+      return formatMcpResponse(workItem, md, false, true);
     } catch (error) {
       console.error('Error in createLink tool:', error);
       return formatErrorResponse(error);
@@ -565,7 +539,26 @@ export class WorkItemTools {
   public async bulkCreateWorkItems(params: BulkWorkItemParams): Promise<McpResponse> {
     try {
       const results = await this.workItemService.bulkUpdateWorkItems(params);
-      return formatMcpResponse(results, `Processed ${results.count} work items`);
+
+      const created = results.created || [];
+      const updated = results.updated || [];
+      const count = results.count || (created.length + updated.length);
+
+      let md = `## ✅ Bulk Operation Complete\n\n**${count} work items processed**`;
+      if (created.length > 0) md += ` | ${created.length} created`;
+      if (updated.length > 0) md += ` | ${updated.length} updated`;
+      md += '\n';
+
+      if (created.length > 0) {
+        const ids = created.map((wi: any) => `#${wi.id}`).join(', ');
+        md += `\n**Created:** ${ids}`;
+      }
+      if (updated.length > 0) {
+        const ids = updated.map((wi: any) => `#${wi.id}`).join(', ');
+        md += `\n**Updated:** ${ids}`;
+      }
+
+      return formatMcpResponse(results, md, false, true);
     } catch (error) {
       console.error('Error in bulkCreateWorkItems tool:', error);
       return formatErrorResponse(error);

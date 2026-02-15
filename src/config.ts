@@ -49,6 +49,14 @@ function loadEnvFile() {
 loadEnvFile();
 
 /**
+ * Check if structured content should be included in MCP responses.
+ * Controlled by ENABLE_STRUCTURED_CONTENT env var (default: false).
+ */
+export function isStructuredContentEnabled(): boolean {
+  return process.env.ENABLE_STRUCTURED_CONTENT === 'true';
+}
+
+/**
  * Get Azure DevOps configuration from environment variables
  */
 export function getAzureDevOpsConfig(): AzureDevOpsConfig {
