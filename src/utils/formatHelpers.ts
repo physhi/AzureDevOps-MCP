@@ -127,13 +127,22 @@ export function getPrStatusString(status: number): string {
 
 // ── Sprint Helpers ───────────────────────────────────────────────
 
-export function getSprintTimeframeEmoji(timeFrame: string | undefined): string {
-  if (!timeFrame) return '📅';
-  const tf = timeFrame.toLowerCase();
-  if (tf === 'current') return '🏃';
-  if (tf === 'past') return '✅';
-  if (tf === 'future') return '📅';
+export function getSprintTimeframeEmoji(timeFrame: string | number | undefined): string {
+  if (timeFrame == null) return '📅';
+  const tf = String(timeFrame).toLowerCase();
+  if (tf === 'current' || tf === '1') return '🏃';
+  if (tf === 'past' || tf === '0') return '✅';
+  if (tf === 'future' || tf === '2') return '📅';
   return '📅';
+}
+
+export function getSprintTimeframeLabel(timeFrame: string | number | undefined): string {
+  if (timeFrame == null) return 'N/A';
+  const tf = String(timeFrame).toLowerCase();
+  if (tf === 'current' || tf === '1') return 'Current';
+  if (tf === 'past' || tf === '0') return 'Past';
+  if (tf === 'future' || tf === '2') return 'Future';
+  return String(timeFrame);
 }
 
 // ── Table Builder Helper ─────────────────────────────────────────

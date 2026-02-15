@@ -18,7 +18,8 @@ import {
   formatRelativeDate,
   truncateText,
   markdownTable,
-  getSprintTimeframeEmoji
+  getSprintTimeframeEmoji,
+  getSprintTimeframeLabel
 } from '../utils/formatHelpers';
 
 export class BoardsSprintsTools {
@@ -156,9 +157,9 @@ export class BoardsSprintsTools {
         return formatMcpResponse(sprints, `## Sprints\n\nNo sprints found.\n\n💡 Use \`createIteration\` to create sprint iterations.`);
       }
 
-      const currentCount = items.filter((s: any) => s.attributes?.timeFrame === 'current').length;
-      const pastCount = items.filter((s: any) => s.attributes?.timeFrame === 'past').length;
-      const futureCount = items.filter((s: any) => s.attributes?.timeFrame === 'future').length;
+      const currentCount = items.filter((s: any) => getSprintTimeframeLabel(s.attributes?.timeFrame) === 'Current').length;
+      const pastCount = items.filter((s: any) => getSprintTimeframeLabel(s.attributes?.timeFrame) === 'Past').length;
+      const futureCount = items.filter((s: any) => getSprintTimeframeLabel(s.attributes?.timeFrame) === 'Future').length;
 
       let md = `## Sprints\n\n**${items.length} sprints**`;
       const parts: string[] = [];
@@ -169,13 +170,14 @@ export class BoardsSprintsTools {
       md += '\n\n';
 
       const rows = items.map((s: any) => {
-        const tf = s.attributes?.timeFrame || '';
+        const tf = s.attributes?.timeFrame;
         const emoji = getSprintTimeframeEmoji(tf);
+        const label = getSprintTimeframeLabel(tf);
         return [
           s.name || 'N/A',
           s.attributes?.startDate ? formatFullDate(s.attributes.startDate) : '-',
           s.attributes?.finishDate ? formatFullDate(s.attributes.finishDate) : '-',
-          `${emoji} ${tf || 'N/A'}`
+          `${emoji} ${label}`
         ];
       });
       md += markdownTable(['Name', 'Start', 'End', 'Status'], rows);

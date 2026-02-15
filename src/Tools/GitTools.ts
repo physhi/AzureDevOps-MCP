@@ -200,11 +200,11 @@ export class GitTools {
 
       // Folders first, then files
       folders.forEach((f: any) => {
-        const name = f.path?.split('/').pop() || f.name || 'N/A';
+        const name = f.path?.split('/').filter(Boolean).pop() || f.name || f.path || '/';
         md += `📁 ${name}/\n`;
       });
       files.forEach((f: any) => {
-        const name = f.path?.split('/').pop() || f.name || 'N/A';
+        const name = f.path?.split('/').filter(Boolean).pop() || f.name || 'N/A';
         md += `📄 ${name}\n`;
       });
 
