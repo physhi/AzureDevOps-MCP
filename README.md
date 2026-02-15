@@ -128,6 +128,40 @@ The integration is organized into eight main tool categories:
 - Predict build failures
 - Optimize test selection
 
+## Response Format
+
+All tool responses return **human-readable markdown** — tables, summaries, confirmations with actionable hints — instead of raw JSON dumps. This makes responses easy to read in any MCP client.
+
+**Example: Sprint list**
+```
+## Sprints (3 results)
+| Sprint | Dates | Status |
+|--------|-------|--------|
+| Sprint 24 | Jan 6 – Jan 20 | past |
+| Sprint 25 | Jan 20 – Feb 3 | current |
+| Sprint 26 | Feb 3 – Feb 17 | future |
+```
+
+**Example: Work item created**
+```
+## ✅ User Story #4521 Created
+**Title:** Add export to PDF
+**Assigned To:** john@example.com
+**State:** New
+💡 View: https://dev.azure.com/org/project/_workitems/edit/4521
+```
+
+**Example: Error with hint**
+```
+## ❌ Error
+Could not find repository "my-repo" in project "MyProject".
+💡 Hint: Use `listRepositories` to see available repositories.
+```
+
+### Structured Content for Automation
+
+Set `ENABLE_STRUCTURED_CONTENT=true` to include machine-readable JSON in the `structuredContent` field alongside the markdown `content`. This is useful for programmatic consumers that need typed data while still having a human-readable fallback.
+
 ## Installation
 
 ### Installing via Smithery
@@ -294,6 +328,7 @@ The server can be configured using the following environment variables:
 | AZURE_DEVOPS_USERNAME | Username for NTLM/Basic auth | No** | - |
 | AZURE_DEVOPS_PASSWORD | Password for NTLM/Basic auth | No** | - |
 | AZURE_DEVOPS_DOMAIN | Domain for NTLM auth | No | - |
+| ENABLE_STRUCTURED_CONTENT | Enable machine-readable JSON in structuredContent field | No | false |
 | ALLOWED_TOOLS | Comma-separated list of tool methods to enable | No | All tools |
 
 \* Required if `AZURE_DEVOPS_IS_ON_PREMISES=true`
@@ -379,6 +414,7 @@ The project is structured as follows:
   - `Interfaces/`: Type definitions for parameters and responses
   - `Services/`: Service classes for interacting with Azure DevOps APIs
   - `Tools/`: Tool implementations that expose functionality to clients
+  - `utils/`: Shared formatting utilities (date formatting, markdown tables, emoji maps)
   - `index.ts`: Main entry point that registers tools and starts the server
   - `config.ts`: Configuration handling
 
