@@ -1,21 +1,45 @@
 {
-  "name": "azuredevops",
-  "version": "1.0.0",
+  "name": "@achieveai/azuredevops-mcp",
+  "version": "1.1.0",
   "main": "dist/index.js",
   "scripts": {
     "build": "tsc",
     "build:ignore-errors": "tsc --skipLibCheck --noEmitOnError false",
     "start": "node dist/index.js",
     "dev": "ts-node src/index.ts",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "prepublishOnly": "npm run build"
   },
   "bin": {
-    "azuredevops": "dist/index.js"
+    "azuredevops-mcp": "dist/index.js"
   },
-  "keywords": [],
-  "author": "",
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "keywords": [
+    "mcp",
+    "azure-devops",
+    "model-context-protocol",
+    "ai",
+    "llm",
+    "devops",
+    "work-items",
+    "git",
+    "pull-requests"
+  ],
+  "author": "AchieveAI",
   "license": "ISC",
-  "description": "MCP server for Azure DevOps integration",
+  "description": "MCP server for Azure DevOps integration - enables AI agents to interact with Azure DevOps work items, repositories, pull requests, and sprints",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/physhi/AzureDevOps-MCP.git"
+  },
+  "bugs": {
+    "url": "https://github.com/physhi/AzureDevOps-MCP/issues"
+  },
+  "homepage": "https://github.com/physhi/AzureDevOps-MCP#readme",
   "dependencies": {
     "@azure/identity": "^4.13.0",
     "@modelcontextprotocol/sdk": "^1.20.1",
