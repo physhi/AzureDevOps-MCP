@@ -200,11 +200,13 @@ export class GitTools {
 
       // Folders first, then files
       folders.forEach((f: any) => {
-        const name = f.path?.split('/').filter(Boolean).pop() || f.name || f.path || '/';
+        const segments = f.path?.split('/').filter(Boolean) || [];
+        const name = segments.length > 0 ? segments[segments.length - 1] : (f.name || '.');
         md += `📁 ${name}/\n`;
       });
       files.forEach((f: any) => {
-        const name = f.path?.split('/').filter(Boolean).pop() || f.name || 'N/A';
+        const segments = f.path?.split('/').filter(Boolean) || [];
+        const name = segments.length > 0 ? segments[segments.length - 1] : (f.name || 'N/A');
         md += `📄 ${name}\n`;
       });
 
@@ -919,10 +921,10 @@ TargetCommitId: ${pullRequest.lastMergeTargetCommit?.commitId || 'N/A'}
     try {
       const count = await this.gitService.getPullRequestChangesCount(params);
 
-      const total = count?.totalFiles || count?.total || count?.count || 0;
-      const modified = count?.modified || 0;
-      const added = count?.added || 0;
-      const deleted = count?.deleted || 0;
+      const total = count?.totalChanges || count?.totalFiles || count?.total || count?.count || 0;
+      const modified = count?.modifiedFiles || count?.modified || 0;
+      const added = count?.addedFiles || count?.added || 0;
+      const deleted = count?.deletedFiles || count?.deleted || 0;
 
       let md = `## PR #${params.pullRequestId} Changes\n\n`;
       md += `**${total} files**`;
