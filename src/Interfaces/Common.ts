@@ -24,41 +24,17 @@ export interface McpResponse {
  * @returns MCP-compatible response
  */
 export function formatMcpResponse(data: any, message?: string, isError = false, includeStructuredContent = false): McpResponse {
-  // If message contains markdown formatting (starts with --- or contains table markdown), use it as primary content
-  if (message && message.length > 120) {
-    const response: McpResponse = {
-      content: [
-        {
-          type: "text",
-          text: message
-        }
-      ],
-      rawData: data,
-      isError
-    };
-
-    // Add structured content if requested AND env toggle is enabled
-    if (includeStructuredContent && isStructuredContentEnabled() && data) {
-      response.structuredContent = {
-        format: "application/json",
-        data: data
-      };
-    }
-
-    return response;
-  }
+  // When a message is provided, use it as the sole content (markdown-formatted tools)
+  // Only fall back to JSON dump when no message is provided at all
+  const hasMessage = message && message.length > 0;
 
   const response: McpResponse = {
-    content: [
-      {
-        type: "text",
-        text: message || (isError ? "Error occurred" : "Request successful")
-      },
-      {
-        type: "text",
-        text: typeof data === 'string' ? data : JSON.stringify(data, null, 2)
-      }
-    ],
+    content: hasMessage
+      ? [{ type: "text", text: message }]
+      : [
+          { type: "text", text: isError ? "Error occurred" : "Request successful" },
+          { type: "text", text: typeof data === 'string' ? data : JSON.stringify(data, null, 2) }
+        ],
     rawData: data,
     isError
   };
