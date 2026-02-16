@@ -37,7 +37,6 @@ async function main() {
     const server = new McpServer({
       name: 'azure-devops-mcp',
       version: '1.0.0',
-      description: 'MCP server for Azure DevOps integration',
     });
 
     // Register Work Item Tools
