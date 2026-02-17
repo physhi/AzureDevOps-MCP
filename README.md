@@ -27,7 +27,7 @@ The integration is organized into eight main tool categories:
 - Add comments to work items
 - Update work item state
 - Assign work items
-- Create links between work items
+- Create links between work items and artifacts (PRs, builds, branches, commits)
 - Bulk create/update work items
 
 ### Boards & Sprints Tools
@@ -405,6 +405,33 @@ Once the server is running, you can interact with it using the MCP protocol. The
   }
 }
 ```
+
+### Example: Link a Work Item to a Pull Request
+
+The `createLink` tool supports linking work items to other work items or artifacts using prefix notation in the `targetId` field:
+
+| Prefix | Target Type | Example | Requires `repository`? |
+|--------|------------|---------|----------------------|
+| `PR#` | Pull Request | `PR#456` | Yes |
+| `BUILD#` | Build | `BUILD#789` | No |
+| `BRANCH#` | Branch | `BRANCH#main` | Yes |
+| `COMMIT#` | Commit | `COMMIT#abc123` | Yes |
+| `WI#` or plain number | Work Item | `WI#123` or `123` | No |
+
+```json
+{
+  "tool": "createLink",
+  "params": {
+    "sourceId": 17086,
+    "targetId": "PR#10619",
+    "linkType": "System.LinkTypes.Related",
+    "repository": "MyRepo",
+    "comment": "Linked PR with fix"
+  }
+}
+```
+
+Artifact links are bidirectional -- the PR will appear on the work item's Links tab, and the work item will appear in the PR's Work Items section.
 
 ## Architecture
 
