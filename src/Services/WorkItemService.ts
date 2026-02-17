@@ -1,6 +1,7 @@
 import * as azdev from 'azure-devops-node-api';
 import { WorkItemTrackingApi } from 'azure-devops-node-api/WorkItemTrackingApi';
-import { 
+import { WorkItemExpand } from 'azure-devops-node-api/interfaces/WorkItemTrackingInterfaces';
+import {
   JsonPatchOperation,
   Operation
 } from 'azure-devops-node-api/interfaces/common/VSSInterfaces';
@@ -16,7 +17,7 @@ import {
   AddWorkItemCommentParams,
   UpdateWorkItemStateParams,
   AssignWorkItemParams,
-  CreateLinkParams,
+  CreateLinkServiceParams,
   BulkWorkItemParams
 } from '../Interfaces/WorkItems';
 
@@ -52,7 +53,7 @@ export class WorkItemService extends AzureDevOpsService {
   public async getWorkItemById(params: WorkItemByIdParams): Promise<any> {
     try {
       const witApi = await this.getWorkItemTrackingApi();
-      const workItem = await witApi.getWorkItem(params.id, undefined, undefined, undefined, this.config.project);
+      const workItem = await witApi.getWorkItem(params.id, undefined, undefined, WorkItemExpand.Relations, this.config.project);
       
       // Transform to streamlined format for MCP tool consumption
       if (workItem && workItem.fields) {
@@ -84,15 +85,27 @@ export class WorkItemService extends AzureDevOpsService {
         // Add work item relations/dependencies
         if (workItem.relations && workItem.relations.length > 0) {
           streamlined.relations = workItem.relations.map((relation: any) => {
-            // Extract work item ID from URL (e.g., ".../_apis/wit/workItems/12345" -> 12345)
-            const urlParts = relation.url.split('/');
-            const relatedId = parseInt(urlParts[urlParts.length - 1]);
-            
-            return {
-              relationshipType: relation.rel,
-              relatedWorkItemId: relatedId,
-              comment: relation.attributes?.comment || null
-            };
+            if (relation.rel === 'ArtifactLink') {
+              // Artifact link (PR, Build, Branch, Commit, etc.)
+              const artifactInfo = this.parseArtifactUri(relation.url);
+              return {
+                relationshipType: relation.rel,
+                artifactType: artifactInfo.type,
+                artifactId: artifactInfo.id,
+                artifactDisplayName: relation.attributes?.name || artifactInfo.type,
+                artifactUri: relation.url,
+                comment: relation.attributes?.comment || null
+              };
+            } else {
+              // Work item link
+              const urlParts = relation.url.split('/');
+              const relatedId = parseInt(urlParts[urlParts.length - 1]);
+              return {
+                relationshipType: relation.rel,
+                relatedWorkItemId: relatedId,
+                comment: relation.attributes?.comment || null
+              };
+            }
           });
         }
         
@@ -146,6 +159,37 @@ export class WorkItemService extends AzureDevOpsService {
       console.error(`Error getting work item with effort rollup ${params.id}:`, error);
       throw error;
     }
+  }
+
+  /**
+   * Parse a vstfs:/// artifact URI into type and ID.
+   * Handles both %2F and / separators in composite IDs.
+   */
+  private parseArtifactUri(uri: string): { type: string; id: string } {
+    // Normalize %2F to / for easier parsing
+    const normalized = uri.replace(/%2[fF]/g, '/');
+
+    // vstfs:///Git/PullRequestId/{projectId}/{repoId}/{prId}
+    const prMatch = normalized.match(/vstfs:\/\/\/Git\/PullRequestId\/[^/]+\/[^/]+\/(\d+)/);
+    if (prMatch) return { type: 'Pull Request', id: prMatch[1] };
+
+    // vstfs:///Build/Build/{buildId}
+    const buildMatch = normalized.match(/vstfs:\/\/\/Build\/Build\/(\d+)/);
+    if (buildMatch) return { type: 'Build', id: buildMatch[1] };
+
+    // vstfs:///Git/Ref/{projectId}/{repoId}/GB{branchName}
+    const branchMatch = normalized.match(/vstfs:\/\/\/Git\/Ref\/[^/]+\/[^/]+\/GB(.+)/);
+    if (branchMatch) return { type: 'Branch', id: branchMatch[1] };
+
+    // vstfs:///Git/Commit/{projectId}/{repoId}/{commitSha}
+    const commitMatch = normalized.match(/vstfs:\/\/\/Git\/Commit\/[^/]+\/[^/]+\/([a-f0-9]+)/i);
+    if (commitMatch) return { type: 'Commit', id: commitMatch[1] };
+
+    // Fallback: extract tool/type from URI pattern vstfs:///{tool}/{type}/...
+    const genericMatch = normalized.match(/vstfs:\/\/\/([^/]+)\/([^/]+)\/(.*)/);
+    if (genericMatch) return { type: `${genericMatch[1]}/${genericMatch[2]}`, id: genericMatch[3] };
+
+    return { type: 'Unknown', id: uri };
   }
 
   /**
@@ -580,36 +624,53 @@ export class WorkItemService extends AzureDevOpsService {
   }
 
   /**
-   * Create a link between work items
+   * Create a link between a work item and another work item or artifact
    */
-  public async createLink(params: CreateLinkParams): Promise<any> {
+  public async createLink(params: CreateLinkServiceParams): Promise<any> {
     try {
       const witApi = await this.getWorkItemTrackingApi();
-      
+
+      let relationValue: any;
+
+      if (params.artifactUri) {
+        // Artifact link (PR, Build, Branch, Commit)
+        relationValue = {
+          rel: "ArtifactLink",
+          url: params.artifactUri,
+          attributes: {
+            comment: params.comment || "",
+            name: params.artifactName || ""
+          }
+        };
+      } else {
+        // Work item link (existing behavior)
+        relationValue = {
+          rel: params.linkType,
+          url: `${this.config.orgUrl}/_apis/wit/workItems/${params.targetWorkItemId}`,
+          attributes: {
+            comment: params.comment || ""
+          }
+        };
+      }
+
       const patchDocument: JsonPatchOperation[] = [
         {
           op: Operation.Add,
           path: "/relations/-",
-          value: {
-            rel: params.linkType,
-            url: `${this.config.orgUrl}/_apis/wit/workItems/${params.targetId}`,
-            attributes: {
-              comment: params.comment || ""
-            }
-          }
+          value: relationValue
         }
       ];
-      
+
       const workItem = await witApi.updateWorkItem(
         undefined,
         patchDocument,
         params.sourceId,
         this.config.project
       );
-      
+
       return workItem;
     } catch (error) {
-      console.error(`Error creating link between work items:`, error);
+      console.error(`Error creating link:`, error);
       throw error;
     }
   }

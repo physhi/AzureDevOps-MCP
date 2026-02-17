@@ -77,13 +77,40 @@ export interface AssignWorkItemParams {
 }
 
 /**
- * Interface for creating a link between work items
+ * Interface for creating a link between a work item and another work item or artifact.
+ * targetId supports prefixes: WI#123, PR#456, BUILD#789, BRANCH#main, COMMIT#abc123, or plain number.
  */
 export interface CreateLinkParams {
   sourceId: number;
-  targetId: number;
+  targetId: string;
   linkType: string;
   comment?: string;
+  repository?: string;
+}
+
+/**
+ * Parsed target identifier from prefix notation
+ */
+export type ArtifactTargetType = 'workitem' | 'pr' | 'build' | 'branch' | 'commit';
+
+export interface ParsedTarget {
+  type: ArtifactTargetType;
+  id: string;
+  displayName: string;
+}
+
+/**
+ * Internal params for WorkItemService.createLink with pre-resolved IDs
+ */
+export interface CreateLinkServiceParams {
+  sourceId: number;
+  linkType: string;
+  comment?: string;
+  // For work item links
+  targetWorkItemId?: number;
+  // For artifact links
+  artifactUri?: string;
+  artifactName?: string;
 }
 
 /**

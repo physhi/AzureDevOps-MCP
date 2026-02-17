@@ -211,12 +211,16 @@ async function main() {
     );
     
     allowedTools.has("createLink") && server.tool("createLink",
-      "Create a link between work items",
+      "Create a link between a work item and another work item or artifact. " +
+      "Use prefixes for targetId: WI#123 (work item), PR#456 (pull request), " +
+      "BUILD#789 (build), BRANCH#main (branch), COMMIT#abc123 (commit). " +
+      "Plain numbers default to work item.",
       {
         sourceId: z.number().describe("ID of the source work item"),
-        targetId: z.number().describe("ID of the target work item"),
-        linkType: z.string().describe("Type of link to create"),
-        comment: z.string().optional().describe("Comment explaining the link")
+        targetId: z.string().describe("Target with prefix: WI#123, PR#456, BUILD#789, BRANCH#main, COMMIT#abc, or plain number for work item"),
+        linkType: z.string().describe("Link type (e.g., System.LinkTypes.Related). For artifact prefixes, this is still required but the actual rel type is auto-set to ArtifactLink."),
+        comment: z.string().optional().describe("Comment explaining the link"),
+        repository: z.string().optional().describe("Repository name or ID. Required for PR#, BRANCH#, COMMIT# targets.")
       },
       async (params, extra) => {
         const result = await workItemTools.createLink(params);

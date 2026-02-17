@@ -1,5 +1,6 @@
 import { AzureDevOpsConfig } from '../Interfaces/AzureDevOps';
 import { WorkItemService } from '../Services/WorkItemService';
+import { GitService } from '../Services/GitService';
 import { formatMcpResponse, formatErrorResponse, McpResponse } from '../Interfaces/Common';
 import {
   WorkItemByIdParams,
@@ -12,6 +13,9 @@ import {
   UpdateWorkItemStateParams,
   AssignWorkItemParams,
   CreateLinkParams,
+  CreateLinkServiceParams,
+  ParsedTarget,
+  ArtifactTargetType,
   BulkWorkItemParams
 } from '../Interfaces/WorkItems';
 import getClassMethods from "../utils/getClassMethods";
@@ -27,11 +31,54 @@ import {
   markdownTable
 } from '../utils/formatHelpers';
 
+/**
+ * Parse a target ID string with optional prefix into a typed target.
+ * Supports: PR#123, BUILD#456, BRANCH#main, COMMIT#abc, WI#789, or plain "789"
+ */
+function parseTargetId(targetId: string): ParsedTarget {
+  const trimmed = targetId.trim();
+  const match = trimmed.match(/^(PR|BUILD|BRANCH|COMMIT|WI)#(.+)$/i);
+
+  if (!match) {
+    // Plain number = work item
+    return { type: 'workitem', id: trimmed, displayName: 'Work Item' };
+  }
+
+  const prefix = match[1].toUpperCase();
+  const id = match[2];
+
+  const prefixMap: Record<string, { type: ArtifactTargetType; displayName: string }> = {
+    'PR':     { type: 'pr',       displayName: 'Pull Request' },
+    'BUILD':  { type: 'build',    displayName: 'Build' },
+    'BRANCH': { type: 'branch',   displayName: 'Branch' },
+    'COMMIT': { type: 'commit',   displayName: 'Commit' },
+    'WI':     { type: 'workitem', displayName: 'Work Item' },
+  };
+
+  return { ...prefixMap[prefix], id };
+}
+
 export class WorkItemTools {
   private workItemService: WorkItemService;
+  private gitService: GitService;
+  private config: AzureDevOpsConfig;
 
   constructor(config: AzureDevOpsConfig) {
+    this.config = config;
     this.workItemService = new WorkItemService(config);
+    this.gitService = new GitService(config);
+  }
+
+  /**
+   * Resolve project name to project ID (GUID) using CoreApi
+   */
+  private async resolveProjectId(): Promise<string> {
+    const coreApi = await this.workItemService['connection'].getCoreApi();
+    const project = await coreApi.getProject(this.config.project);
+    if (!project?.id) {
+      throw new Error(`Could not resolve project '${this.config.project}' to a GUID.`);
+    }
+    return project.id;
   }
 
   /**
@@ -182,28 +229,50 @@ export class WorkItemTools {
     if (workItem.relations && workItem.relations.length > 0) {
       result += `### 🔗 Related Items\n\n`;
 
-      // Group by relationship type
-      const grouped: { [key: string]: number[] } = {};
-      workItem.relations.forEach((relation: any) => {
-        const relType = relation.relationshipType || 'Related';
-        if (!grouped[relType]) grouped[relType] = [];
-        grouped[relType].push(relation.relatedWorkItemId);
-      });
+      // Separate work item links from artifact links
+      const wiRelations = workItem.relations.filter((r: any) => r.relationshipType !== 'ArtifactLink');
+      const artifactRelations = workItem.relations.filter((r: any) => r.relationshipType === 'ArtifactLink');
 
-      const relationTypes: { [key: string]: string } = {
-        'System.LinkTypes.Hierarchy-Forward': '⬇️ Child',
-        'System.LinkTypes.Hierarchy-Reverse': '⬆️ Parent',
-        'System.LinkTypes.Dependency-Forward': '➡️ Successor',
-        'System.LinkTypes.Dependency-Reverse': '⬅️ Predecessor',
-        'System.LinkTypes.Related': '🔄 Related'
-      };
+      // Group work item links by relationship type
+      if (wiRelations.length > 0) {
+        const grouped: { [key: string]: number[] } = {};
+        wiRelations.forEach((relation: any) => {
+          const relType = relation.relationshipType || 'Related';
+          if (!grouped[relType]) grouped[relType] = [];
+          grouped[relType].push(relation.relatedWorkItemId);
+        });
 
-      Object.entries(grouped).forEach(([relType, ids]) => {
-        const label = relationTypes[relType]?.split(' ')[1] || 'Related';
-        const emojiPart = relationTypes[relType]?.split(' ')[0] || '🔗';
-        const idList = ids.map(id => `#${id}`).join(', ');
-        result += `- ${emojiPart} ${idList} (${label})\n`;
-      });
+        const relationTypes: { [key: string]: string } = {
+          'System.LinkTypes.Hierarchy-Forward': '⬇️ Child',
+          'System.LinkTypes.Hierarchy-Reverse': '⬆️ Parent',
+          'System.LinkTypes.Dependency-Forward': '➡️ Successor',
+          'System.LinkTypes.Dependency-Reverse': '⬅️ Predecessor',
+          'System.LinkTypes.Related': '🔄 Related'
+        };
+
+        Object.entries(grouped).forEach(([relType, ids]) => {
+          const label = relationTypes[relType]?.split(' ')[1] || 'Related';
+          const emojiPart = relationTypes[relType]?.split(' ')[0] || '🔗';
+          const idList = ids.map(id => `#${id}`).join(', ');
+          result += `- ${emojiPart} ${idList} (${label})\n`;
+        });
+      }
+
+      // Show artifact links
+      if (artifactRelations.length > 0) {
+        const artifactEmojis: { [key: string]: string } = {
+          'Pull Request': '🔀',
+          'Build': '🏗️',
+          'Branch': '🌿',
+          'Commit': '📝',
+        };
+
+        artifactRelations.forEach((relation: any) => {
+          const displayName = relation.artifactDisplayName || relation.artifactType || 'Artifact';
+          const emoji = artifactEmojis[relation.artifactType] || '🔗';
+          result += `- ${emoji} ${displayName} #${relation.artifactId} (${relation.artifactType})\n`;
+        });
+      }
 
       result += `\n---\n\n`;
     }
@@ -236,10 +305,21 @@ export class WorkItemTools {
         totalCompleted: workItem.childEffortRollup.totalCompletedWork,
         totalRemaining: workItem.childEffortRollup.totalRemainingWork
       } : null,
-      relations: workItem.relations?.map((r: any) => ({
-        type: r.relationshipType,
-        relatedId: r.relatedWorkItemId
-      })) || [],
+      relations: workItem.relations?.map((r: any) => {
+        if (r.relationshipType === 'ArtifactLink') {
+          return {
+            type: r.relationshipType,
+            artifactType: r.artifactType,
+            artifactId: r.artifactId,
+            artifactDisplayName: r.artifactDisplayName,
+            artifactUri: r.artifactUri,
+          };
+        }
+        return {
+          type: r.relationshipType,
+          relatedId: r.relatedWorkItemId,
+        };
+      }) || [],
       description: workItem.description
     };
 
@@ -518,15 +598,92 @@ export class WorkItemTools {
   }
 
   /**
-   * Create a link between work items
+   * Create a link between a work item and another work item or artifact
    */
   public async createLink(params: CreateLinkParams): Promise<McpResponse> {
     try {
-      const workItem = await this.workItemService.createLink(params);
+      const parsed = parseTargetId(params.targetId);
 
-      const md = `## ✅ Link Created\n\n**#${params.sourceId}** ↔ **#${params.targetId}** (${params.linkType})`;
+      // Validate repository is provided for types that need it
+      if (['pr', 'branch', 'commit'].includes(parsed.type) && !params.repository) {
+        throw new Error(
+          `The 'repository' parameter is required for ${parsed.displayName} links. ` +
+          `Please provide the repository name or ID.`
+        );
+      }
 
-      return formatMcpResponse(workItem, md, false, true);
+      let serviceParams: CreateLinkServiceParams;
+
+      if (parsed.type === 'workitem') {
+        // Work item link (existing behavior)
+        const targetWiId = parseInt(parsed.id, 10);
+        if (isNaN(targetWiId)) {
+          throw new Error(`Invalid work item ID: '${parsed.id}'. Must be a number.`);
+        }
+        serviceParams = {
+          sourceId: params.sourceId,
+          linkType: params.linkType,
+          comment: params.comment,
+          targetWorkItemId: targetWiId,
+        };
+      } else {
+        // Artifact link - build vstfs URI
+        const projectId = await this.resolveProjectId();
+        let artifactUri: string;
+        let repoId: string | undefined;
+
+        if (params.repository) {
+          repoId = await this.gitService.resolveRepositoryId(params.repository);
+        }
+
+        // Azure DevOps artifact URIs use %2F (URL-encoded /) between composite ID segments
+        // e.g. vstfs:///Git/PullRequestId/{projectId}%2F{repoId}%2F{prId}
+        switch (parsed.type) {
+          case 'pr':
+            artifactUri = `vstfs:///Git/PullRequestId/${projectId}%2F${repoId}%2F${parsed.id}`;
+            break;
+          case 'build':
+            artifactUri = `vstfs:///Build/Build/${parsed.id}`;
+            break;
+          case 'branch': {
+            const branchRef = parsed.id.startsWith('GB') ? parsed.id : `GB${parsed.id}`;
+            artifactUri = `vstfs:///Git/Ref/${projectId}%2F${repoId}%2F${branchRef}`;
+            break;
+          }
+          case 'commit':
+            artifactUri = `vstfs:///Git/Commit/${projectId}%2F${repoId}%2F${parsed.id}`;
+            break;
+          default:
+            throw new Error(`Unsupported artifact type: ${parsed.type}`);
+        }
+
+        serviceParams = {
+          sourceId: params.sourceId,
+          linkType: params.linkType,
+          comment: params.comment,
+          artifactUri,
+          artifactName: parsed.displayName,
+        };
+      }
+
+      const workItem = await this.workItemService.createLink(serviceParams);
+
+      // Build readable response
+      const targetLabel = parsed.type === 'workitem'
+        ? `**WI#${parsed.id}**`
+        : `**${parsed.type.toUpperCase()}#${parsed.id}**`;
+
+      const md = `## ✅ Link Created\n\n**WI#${params.sourceId}** ↔ ${targetLabel} (${parsed.displayName})`;
+
+      const structuredData = {
+        sourceId: params.sourceId,
+        targetId: params.targetId,
+        targetType: parsed.type,
+        targetDisplayName: parsed.displayName,
+        linkType: params.linkType,
+      };
+
+      return formatMcpResponse(structuredData, md, false, true);
     } catch (error) {
       console.error('Error in createLink tool:', error);
       return formatErrorResponse(error);
