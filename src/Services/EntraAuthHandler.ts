@@ -1,46 +1,77 @@
-import { AccessToken, DefaultAzureCredential } from "@azure/identity";
+import { AccessToken, DefaultAzureCredential, AzureCliCredential, InteractiveBrowserCredential, TokenCredential } from "@azure/identity";
 import * as VsoBaseInterfaces from "azure-devops-node-api/interfaces/common/VsoBaseInterfaces";
 import { IRequestHandler } from "azure-devops-node-api/interfaces/common/VsoBaseInterfaces";
 import * as azdev from "azure-devops-node-api";
 
-export class EntraAuthHandler implements IRequestHandler {
-  private static instance: EntraAuthHandler;
-  private token: AccessToken | undefined;
-  private readonly credential: DefaultAzureCredential;
-  private readonly scope: string =
-    "499b84ac-1321-427f-aa17-267ca6975798/.default";
+/**
+ * Azure DevOps scope for token requests.
+ */
+const AZURE_DEVOPS_SCOPE = "499b84ac-1321-427f-aa17-267ca6975798/.default";
 
+/**
+ * Generic auth handler that wraps any @azure/identity TokenCredential.
+ * Supports automatic token refresh and re-authentication on 401.
+ */
+export class TokenCredentialAuthHandler implements IRequestHandler {
+  private token: AccessToken | undefined;
   private authHandler: IRequestHandler | undefined;
-  private constructor() { // Made constructor private
-    this.credential = new DefaultAzureCredential();
+
+  constructor(private readonly credential: TokenCredential) {}
+
+  /**
+   * Create handler from DefaultAzureCredential (Entra).
+   */
+  public static async createEntra(): Promise<TokenCredentialAuthHandler> {
+    const handler = new TokenCredentialAuthHandler(new DefaultAzureCredential());
+    await handler.ensureToken();
+    return handler;
   }
 
-  public static async getInstance(): Promise<EntraAuthHandler> {
-    if (!EntraAuthHandler.instance) {
-      EntraAuthHandler.instance = new EntraAuthHandler();
-    }
-    await EntraAuthHandler.instance.ensureToken();
-    return EntraAuthHandler.instance;
+  /**
+   * Create handler from AzureCliCredential.
+   */
+  public static async createAzureCli(tenantId?: string): Promise<TokenCredentialAuthHandler> {
+    const credential = new AzureCliCredential(tenantId ? { tenantId } : undefined);
+    const handler = new TokenCredentialAuthHandler(credential);
+    await handler.ensureToken();
+    return handler;
+  }
+
+  /**
+   * Create handler from InteractiveBrowserCredential (MSAL).
+   * Opens a browser window for user login with token caching and silent re-auth.
+   */
+  public static async createInteractive(options?: { tenantId?: string; clientId?: string }): Promise<TokenCredentialAuthHandler> {
+    const credential = new InteractiveBrowserCredential({
+      ...(options?.tenantId && { tenantId: options.tenantId }),
+      ...(options?.clientId && { clientId: options.clientId }),
+      redirectUri: "http://localhost",
+    });
+    const handler = new TokenCredentialAuthHandler(credential);
+    await handler.ensureToken();
+    return handler;
   }
 
   private isTokenExpired(): boolean {
     const currentTime = new Date().getTime();
-    // Check if the token is expired or will expire in the next 60 seconds
     return this.token!.expiresOnTimestamp <= currentTime + 60000;
   }
 
   private async ensureToken() {
     if (!this.token || this.isTokenExpired()) {
-      this.token = await this.credential.getToken(this.scope);
+      const token = await this.credential.getToken(AZURE_DEVOPS_SCOPE);
+      if (!token) {
+        throw new Error("Failed to acquire Azure DevOps access token.");
+      }
+      this.token = token;
       this.authHandler = azdev.getHandlerFromToken(this.token.token);
     }
   }
+
   public prepareRequest(options: VsoBaseInterfaces.IRequestOptions): void {
     if (this.authHandler) {
       this.authHandler.prepareRequest(options);
     }
-    // If no authHandler, the request will be sent unauthenticated.
-    // If it fails with 401, canHandleAuthentication and handleAuthentication will be invoked.
   }
 
   public canHandleAuthentication(
@@ -49,9 +80,6 @@ export class EntraAuthHandler implements IRequestHandler {
     if (this.authHandler) {
       return this.authHandler.canHandleAuthentication(response);
     }
-    // If authHandler is not set, we can handle it if it's a 401 error
-    // typically handled by token-based authentication.
-    // This condition is standard in azure-devops-node-api handlers.
     return response.message.statusCode === 401 &&
            (response.message.statusMessage || "").toLowerCase().indexOf("non-authoritative") === -1;
   }
@@ -67,5 +95,26 @@ export class EntraAuthHandler implements IRequestHandler {
       requestInfo,
       objs
     );
+  }
+}
+
+/**
+ * @deprecated Use TokenCredentialAuthHandler.createEntra() instead.
+ * Kept for backward compatibility.
+ */
+export class EntraAuthHandler extends TokenCredentialAuthHandler {
+  private static instance: EntraAuthHandler;
+
+  private constructor() {
+    super(new DefaultAzureCredential());
+  }
+
+  public static async getInstance(): Promise<EntraAuthHandler> {
+    if (!EntraAuthHandler.instance) {
+      EntraAuthHandler.instance = new EntraAuthHandler();
+    }
+    // Ensure initial token is acquired
+    await (EntraAuthHandler.instance as any).ensureToken();
+    return EntraAuthHandler.instance;
   }
 }

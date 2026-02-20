@@ -16,7 +16,12 @@ import {
   CreateLinkServiceParams,
   ParsedTarget,
   ArtifactTargetType,
-  BulkWorkItemParams
+  BulkWorkItemParams,
+  GetWorkItemsBatchParams,
+  GetWorkItemRevisionsParams,
+  GetQueryResultsParams,
+  AddChildWorkItemParams,
+  UnlinkWorkItemParams,
 } from '../Interfaces/WorkItems';
 import getClassMethods from "../utils/getClassMethods";
 import {
@@ -718,6 +723,145 @@ export class WorkItemTools {
       return formatMcpResponse(results, md, false, true);
     } catch (error) {
       console.error('Error in bulkCreateWorkItems tool:', error);
+      return formatErrorResponse(error);
+    }
+  }
+
+  // ── New Work Item Enhancement Tools ────────────────────────────
+
+  /**
+   * Get multiple work items by IDs in a single call
+   */
+  public async getWorkItemsBatch(params: GetWorkItemsBatchParams): Promise<McpResponse> {
+    try {
+      const workItems = await this.workItemService.getWorkItemsBatch(params);
+
+      if (workItems.length === 0) {
+        return formatMcpResponse(workItems, `## Work Items Batch\n\nNo work items found for the given IDs.`);
+      }
+
+      let md = `## Work Items Batch\n\n**${workItems.length} work item${workItems.length !== 1 ? 's' : ''}** retrieved\n\n`;
+
+      const rows = workItems.map((wi: any) => {
+        const fields = wi.fields || {};
+        return [
+          `#${wi.id}`,
+          getWorkItemTypeEmoji(fields['System.WorkItemType'] || '') + ' ' + (fields['System.WorkItemType'] || '-'),
+          truncateText(fields['System.Title'] || '-', 50),
+          getStateEmoji(fields['System.State'] || '') + ' ' + (fields['System.State'] || '-'),
+          fields['System.AssignedTo']?.displayName || '-',
+        ];
+      });
+
+      md += markdownTable(['ID', 'Type', 'Title', 'State', 'Assigned To'], rows);
+
+      return formatMcpResponse(workItems, md, false, true);
+    } catch (error) {
+      return formatErrorResponse(error);
+    }
+  }
+
+  /**
+   * Get revision history for a work item
+   */
+  public async getWorkItemRevisions(params: GetWorkItemRevisionsParams): Promise<McpResponse> {
+    try {
+      const revisions = await this.workItemService.getWorkItemRevisions(params);
+
+      if (revisions.length === 0) {
+        return formatMcpResponse(revisions, `## Work Item #${params.id} - Revisions\n\nNo revisions found.`);
+      }
+
+      let md = `## Work Item #${params.id} - Revision History\n\n`;
+      md += `**${revisions.length} revision${revisions.length !== 1 ? 's' : ''}**\n\n`;
+
+      const rows = revisions.map((rev: any, index: number) => {
+        const fields = rev.fields || {};
+        return [
+          `${rev.rev || index + 1}`,
+          truncateText(fields['System.Title'] || '-', 40),
+          fields['System.State'] || '-',
+          fields['System.ChangedBy']?.displayName || fields['System.ChangedBy'] || '-',
+          fields['System.ChangedDate'] ? formatRelativeDate(fields['System.ChangedDate']) : '-',
+        ];
+      });
+
+      md += markdownTable(['Rev', 'Title', 'State', 'Changed By', 'Changed'], rows);
+
+      return formatMcpResponse(revisions, md, false, true);
+    } catch (error) {
+      return formatErrorResponse(error);
+    }
+  }
+
+  /**
+   * Execute a saved WIQL query by query ID
+   */
+  public async getQueryResults(params: GetQueryResultsParams): Promise<McpResponse> {
+    try {
+      const result = await this.workItemService.getQueryResults(params);
+      const workItems = result.workItems || [];
+
+      if (workItems.length === 0) {
+        return formatMcpResponse(result, `## Query Results\n\nNo work items returned by query \`${params.queryId}\`.`);
+      }
+
+      let md = `## Query Results\n\n`;
+      md += `**${workItems.length} work item${workItems.length !== 1 ? 's' : ''}** returned\n\n`;
+
+      const rows = workItems.map((wi: any) => {
+        const fields = wi.fields || {};
+        return [
+          `#${wi.id}`,
+          getWorkItemTypeEmoji(fields['System.WorkItemType'] || '') + ' ' + (fields['System.WorkItemType'] || '-'),
+          truncateText(fields['System.Title'] || '-', 50),
+          getStateEmoji(fields['System.State'] || '') + ' ' + (fields['System.State'] || '-'),
+          fields['System.AssignedTo']?.displayName || '-',
+        ];
+      });
+
+      md += markdownTable(['ID', 'Type', 'Title', 'State', 'Assigned To'], rows);
+
+      return formatMcpResponse(result, md, false, true);
+    } catch (error) {
+      return formatErrorResponse(error);
+    }
+  }
+
+  /**
+   * Create a child work item linked to a parent
+   */
+  public async addChildWorkItem(params: AddChildWorkItemParams): Promise<McpResponse> {
+    try {
+      const workItem = await this.workItemService.addChildWorkItem(params);
+
+      let md = `## Child Work Item Created\n\n`;
+      md += `| Property | Value |\n|---|---|\n`;
+      md += `| **ID** | #${workItem.id} |\n`;
+      md += `| **Parent ID** | #${params.parentId} |\n`;
+      md += `| **Type** | ${params.workItemType} |\n`;
+      md += `| **Title** | ${params.title} |\n`;
+      if (params.assignedTo) md += `| **Assigned To** | ${params.assignedTo} |\n`;
+
+      return formatMcpResponse(workItem, md, false, true);
+    } catch (error) {
+      return formatErrorResponse(error);
+    }
+  }
+
+  /**
+   * Remove a relation (link) from a work item by relation index
+   */
+  public async unlinkWorkItem(params: UnlinkWorkItemParams): Promise<McpResponse> {
+    try {
+      const result = await this.workItemService.unlinkWorkItem(params);
+
+      let md = `## Work Item #${params.id} - Link Removed\n\n`;
+      md += `Relation at index **${params.relationIndex}** has been removed.\n`;
+      md += `\nUse \`getWorkItemById\` to see remaining relations.`;
+
+      return formatMcpResponse(result, md, false, true);
+    } catch (error) {
       return formatErrorResponse(error);
     }
   }

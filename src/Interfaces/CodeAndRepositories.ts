@@ -240,4 +240,60 @@ export interface GetAllPullRequestChangesParams {
   pullRequestId: number;
   top?: number;
   skip?: number;
-} 
+}
+
+/**
+ * Interface for updating pull request properties
+ */
+export interface UpdatePullRequestParams {
+  repository: string;
+  pullRequestId: number;
+  title?: string;
+  description?: string;
+  status?: 'active' | 'abandoned' | 'completed';
+  autoCompleteSetBy?: string;
+  mergeStrategy?: 'noFastForward' | 'rebase' | 'rebaseMerge' | 'squash';
+  deleteSourceBranch?: boolean;
+  isDraft?: boolean;
+  targetRefName?: string;
+}
+
+/**
+ * Interface for managing PR reviewers
+ */
+export interface UpdatePullRequestReviewersParams {
+  repository: string;
+  pullRequestId: number;
+  reviewersToAdd?: string[];
+  reviewersToRemove?: string[];
+  makeRequired?: boolean;
+}
+
+/**
+ * Interface for replying to a PR comment thread
+ */
+export interface ReplyToCommentParams {
+  repository: string;
+  pullRequestId: number;
+  threadId: number;
+  comment: string;
+}
+
+/**
+ * Interface for updating PR thread status
+ */
+export interface UpdatePullRequestThreadParams {
+  repository: string;
+  pullRequestId: number;
+  threadId: number;
+  status: 'active' | 'byDesign' | 'closed' | 'fixed' | 'pending' | 'unknown' | 'wontFix';
+}
+
+/**
+ * Interface for creating a new branch
+ */
+export interface CreateBranchParams {
+  repository: string;
+  branchName: string;
+  sourceRef: string;
+}

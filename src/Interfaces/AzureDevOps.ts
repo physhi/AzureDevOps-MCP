@@ -1,9 +1,9 @@
-import { EntraAuthHandler } from "../Services/EntraAuthHandler";
+import { IRequestHandler } from "azure-devops-node-api/interfaces/common/VsoBaseInterfaces";
 
 /**
  * Defines the possible authentication types for Azure DevOps.
  */
-export type AzureDevOpsAuthType = 'pat' | 'ntlm' | 'basic' | 'entra';
+export type AzureDevOpsAuthType = 'pat' | 'ntlm' | 'basic' | 'entra' | 'azcli' | 'interactive';
 
 /**
  * Configuration for Personal Access Token (PAT) authentication.
@@ -39,9 +39,28 @@ export interface AzureIdentityAuth {
 }
 
 /**
+ * Configuration for Azure CLI credential authentication.
+ * Uses the Azure CLI logged-in session for authentication.
+ */
+export interface AzureCliAuth {
+  type: 'azcli';
+  tenantId?: string;
+}
+
+/**
+ * Configuration for Interactive Browser (MSAL) authentication.
+ * Opens a browser window for user login with token caching and silent re-auth.
+ */
+export interface InteractiveAuth {
+  type: 'interactive';
+  tenantId?: string;
+  clientId?: string;
+}
+
+/**
  * Union type for all possible Azure DevOps authentication configurations.
  */
-export type AzureDevOpsAuthConfig = PatAuth | NtlmAuth | BasicAuth | AzureIdentityAuth;
+export type AzureDevOpsAuthConfig = PatAuth | NtlmAuth | BasicAuth | AzureIdentityAuth | AzureCliAuth | InteractiveAuth;
 
 /**
  * Interface for Azure DevOps configuration
@@ -53,8 +72,8 @@ export interface AzureDevOpsConfig {
   isOnPremises?: boolean;
   collection?: string; // Collection name for on-premises
   apiVersion?: string; // API version for on-premises
-  auth?: AzureDevOpsAuthConfig; // Updated to use the new union type
-  entraAuthHandler?: EntraAuthHandler;
+  auth?: AzureDevOpsAuthConfig;
+  tokenCredentialAuthHandler?: IRequestHandler; // Shared handler for entra/azcli/interactive auth
 }
 
 /**

@@ -24,18 +24,19 @@ export class AzureDevOpsService {
 
     // Get the appropriate authentication handler
 
-    if (config.auth?.type === "entra") {
+    const tokenCredentialAuthTypes = ["entra", "azcli", "interactive"];
+    if (config.auth?.type && tokenCredentialAuthTypes.includes(config.auth.type)) {
       if (config.isOnPremises) {
         throw new Error(
-          "Azure Identity (DefaultAzureCredential) authentication is not supported for on-premises Azure DevOps."
+          `${config.auth.type} authentication is not supported for on-premises Azure DevOps.`
         );
       }
-      if(!config.entraAuthHandler) {
+      if(!config.tokenCredentialAuthHandler) {
         throw new Error(
-          "Entra authentication requires an instance of EntraAuthHandler."
+          `${config.auth.type} authentication requires a pre-initialized token credential auth handler.`
         );
       }
-      this.authHandler = config.entraAuthHandler;
+      this.authHandler = config.tokenCredentialAuthHandler;
     } else if (config.isOnPremises && config.auth) {
       switch (config.auth.type) {
         case 'ntlm':

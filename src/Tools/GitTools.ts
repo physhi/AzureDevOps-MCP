@@ -21,7 +21,12 @@ import {
   AddPullRequestCommentParams,
   GetPullRequestFileChangesParams,
   GetPullRequestChangesCountParams,
-  GetAllPullRequestChangesParams
+  GetAllPullRequestChangesParams,
+  UpdatePullRequestParams,
+  UpdatePullRequestReviewersParams,
+  ReplyToCommentParams,
+  UpdatePullRequestThreadParams,
+  CreateBranchParams,
 } from '../Interfaces/CodeAndRepositories';
 import getClassMethods from "../utils/getClassMethods";
 import {
@@ -592,50 +597,78 @@ export class GitTools {
    * Formats pull request data into readable text format
    */
   private formatPullRequestText(pullRequest: any): string {
-    // Format work items section if available
-    let workItemsSection = '';
-    if (pullRequest.workItems && pullRequest.workItems.length > 0) {
-      workItemsSection = '\n## Associated Work Items\n\n';
-      pullRequest.workItems.forEach((wi: any) => {
-        workItemsSection += `- **#${wi.id}**: ${wi.title || 'N/A'}\n`;
-        workItemsSection += `  - Type: ${wi.type || 'N/A'}\n`;
-        workItemsSection += `  - State: ${wi.state || 'N/A'}\n`;
-        if (wi.assignedTo) {
-          workItemsSection += `  - Assigned To: ${wi.assignedTo}\n`;
-        }
-        workItemsSection += '\n';
-      });
+    let md = `## Pull Request #${pullRequest.pullRequestId || 'N/A'}\n\n`;
+    md += `### ${pullRequest.title || 'N/A'}\n\n`;
+
+    // Status & meta info table
+    md += `| Property | Value |\n|---|---|\n`;
+    md += `| **Status** | ${getPrStatusString(pullRequest.status)} |\n`;
+    md += `| **Created By** | ${pullRequest.createdBy?.displayName || 'N/A'} |\n`;
+    md += `| **Created Date** | ${pullRequest.creationDate ? formatFullDate(pullRequest.creationDate) : 'N/A'} |\n`;
+    md += `| **Is Draft** | ${pullRequest.isDraft ? 'Yes' : 'No'} |\n`;
+    md += `| **Merge Status** | ${pullRequest.mergeStatus || 'N/A'} |\n`;
+    md += `| **Source Branch** | \`${pullRequest.sourceRefName?.replace('refs/heads/', '') || 'N/A'}\` |\n`;
+    md += `| **Target Branch** | \`${pullRequest.targetRefName?.replace('refs/heads/', '') || 'N/A'}\` |\n`;
+    md += `| **Repository** | ${pullRequest.repository?.name || 'N/A'} |\n`;
+    md += `| **Source Commit** | \`${truncateText(pullRequest.lastMergeSourceCommit?.commitId || 'N/A', 12)}\` |\n`;
+    md += `| **Target Commit** | \`${truncateText(pullRequest.lastMergeTargetCommit?.commitId || 'N/A', 12)}\` |\n`;
+    if (pullRequest.closedDate) {
+      md += `| **Closed Date** | ${formatFullDate(pullRequest.closedDate)} |\n`;
+    }
+    if (pullRequest.autoCompleteSetBy?.displayName) {
+      md += `| **Auto-Complete By** | ${pullRequest.autoCompleteSetBy.displayName} |\n`;
     }
 
-    return `---
-# Title
+    // Description
+    md += `\n### Description\n\n`;
+    md += `${pullRequest.description || '_No description provided._'}\n`;
 
-${pullRequest.title || 'N/A'}
+    // Reviewers
+    if (pullRequest.reviewers && pullRequest.reviewers.length > 0) {
+      md += `\n### Reviewers\n\n`;
+      const reviewerRows = pullRequest.reviewers.map((r: any) => [
+        r.displayName || 'Unknown',
+        getVoteLabel(r.vote),
+        r.isRequired ? 'Required' : 'Optional',
+      ]);
+      md += markdownTable(['Reviewer', 'Vote', 'Type'], reviewerRows);
+    }
 
-## Author:
+    // Labels/Tags
+    if (pullRequest.labels && pullRequest.labels.length > 0) {
+      md += `\n### Labels\n\n`;
+      md += pullRequest.labels.map((l: any) => `\`${l.name || l}\``).join(', ') + '\n';
+    }
 
-Name: ${pullRequest.createdBy?.displayName || 'N/A'}
+    // Work items
+    if (pullRequest.workItems && pullRequest.workItems.length > 0) {
+      md += `\n### Associated Work Items\n\n`;
+      const wiRows = pullRequest.workItems.map((wi: any) => [
+        `#${wi.id}`,
+        wi.title || 'N/A',
+        wi.type || '-',
+        wi.state || '-',
+        wi.assignedTo || '-',
+      ]);
+      md += markdownTable(['ID', 'Title', 'Type', 'State', 'Assigned To'], wiRows);
+    }
 
-## Description
+    // Completion options
+    if (pullRequest.completionOptions) {
+      md += `\n### Completion Options\n\n`;
+      md += `| Option | Value |\n|---|---|\n`;
+      if (pullRequest.completionOptions.mergeStrategy !== undefined) {
+        md += `| **Merge Strategy** | ${getMergeStrategyLabel(pullRequest.completionOptions.mergeStrategy)} |\n`;
+      }
+      if (pullRequest.completionOptions.deleteSourceBranch !== undefined) {
+        md += `| **Delete Source Branch** | ${pullRequest.completionOptions.deleteSourceBranch ? 'Yes' : 'No'} |\n`;
+      }
+      if (pullRequest.completionOptions.mergeCommitMessage) {
+        md += `| **Merge Commit Message** | ${truncateText(pullRequest.completionOptions.mergeCommitMessage, 60)} |\n`;
+      }
+    }
 
-${pullRequest.description || 'N/A'}
-${workItemsSection}
-## Repository Detials
-
-ProjectId: ${pullRequest.repository?.project?.id || 'N/A'}
-ProjectName: ${pullRequest.repository?.project?.name || 'N/A'}
-
-Name: ${pullRequest.repository?.name || 'N/A'}
-Id: ${pullRequest.repository?.id || 'N/A'}
-
-## Branch Data
-
-SourceBranch: ${pullRequest.sourceRefName || 'N/A'}
-TargetBranch: ${pullRequest.targetRefName || 'N/A'}
-
-SourceCommitId: ${pullRequest.lastMergeSourceCommit?.commitId || 'N/A'}
-TargetCommitId: ${pullRequest.lastMergeTargetCommit?.commitId || 'N/A'}
----`;
+    return md;
   }
 
   /**
@@ -1318,6 +1351,133 @@ TargetCommitId: ${pullRequest.lastMergeTargetCommit?.commitId || 'N/A'}
       return formatErrorResponse(error);
     }
   }
+
+  // ── New PR Enhancement Tools ─────────────────────────────────
+
+  /**
+   * Update pull request properties (title, description, status, auto-complete, draft)
+   */
+  public async updatePullRequest(params: UpdatePullRequestParams): Promise<McpResponse> {
+    try {
+      const result = await this.gitService.updatePullRequest(params);
+
+      let md = `## Pull Request #${params.pullRequestId} Updated\n\n`;
+      md += `| Property | Value |\n|---|---|\n`;
+      md += `| **Title** | ${result.title || '-'} |\n`;
+      md += `| **Status** | ${getPrStatusString(result.status)} |\n`;
+      md += `| **Is Draft** | ${result.isDraft ? 'Yes' : 'No'} |\n`;
+      if (result.autoCompleteSetBy?.displayName) {
+        md += `| **Auto-Complete By** | ${result.autoCompleteSetBy.displayName} |\n`;
+      }
+
+      return formatMcpResponse(result, md, false, true);
+    } catch (error) {
+      return formatErrorResponse(error);
+    }
+  }
+
+  /**
+   * Add or remove reviewers on a pull request
+   */
+  public async updatePullRequestReviewers(params: UpdatePullRequestReviewersParams): Promise<McpResponse> {
+    try {
+      const result = await this.gitService.updatePullRequestReviewers(params);
+
+      let md = `## PR #${params.pullRequestId} - Reviewers Updated\n\n`;
+      if (result.added.length > 0) {
+        md += `**Added ${result.added.length} reviewer(s):**\n`;
+        result.added.forEach((r: any) => {
+          md += `- ${r.displayName || r.id || 'Unknown'}${r.isRequired ? ' (Required)' : ''}\n`;
+        });
+      }
+      if (result.removed.length > 0) {
+        md += `\n**Removed ${result.removed.length} reviewer(s):**\n`;
+        result.removed.forEach((r: string) => {
+          md += `- ${r}\n`;
+        });
+      }
+
+      return formatMcpResponse(result, md, false, true);
+    } catch (error) {
+      return formatErrorResponse(error);
+    }
+  }
+
+  /**
+   * Reply to an existing comment thread on a PR
+   */
+  public async replyToComment(params: ReplyToCommentParams): Promise<McpResponse> {
+    try {
+      const result = await this.gitService.replyToComment(params);
+
+      let md = `## Reply Added to Thread #${params.threadId}\n\n`;
+      md += `**Author:** ${result.author?.displayName || 'Unknown'}\n`;
+      md += `**Comment ID:** ${result.id}\n\n`;
+      md += `> ${params.comment}\n`;
+
+      return formatMcpResponse(result, md, false, true);
+    } catch (error) {
+      return formatErrorResponse(error);
+    }
+  }
+
+  /**
+   * Update a comment thread's status (resolve/reactivate)
+   */
+  public async updatePullRequestThread(params: UpdatePullRequestThreadParams): Promise<McpResponse> {
+    try {
+      const result = await this.gitService.updatePullRequestThread(params);
+
+      let md = `## Thread #${params.threadId} Updated\n\n`;
+      md += `**Status:** ${params.status}\n`;
+
+      return formatMcpResponse(result, md, false, true);
+    } catch (error) {
+      return formatErrorResponse(error);
+    }
+  }
+
+  /**
+   * Create a new branch from a source ref (branch name or commit SHA)
+   */
+  public async createBranch(params: CreateBranchParams): Promise<McpResponse> {
+    try {
+      const result = await this.gitService.createBranch(params);
+
+      let md = `## Branch Created\n\n`;
+      md += `| Property | Value |\n|---|---|\n`;
+      md += `| **Branch** | \`${result.name || params.branchName}\` |\n`;
+      md += `| **New Object ID** | \`${truncateText(result.newObjectId || '-', 12)}\` |\n`;
+      md += `| **Success** | ${result.success !== false ? 'Yes' : 'No'} |\n`;
+
+      return formatMcpResponse(result, md, false, true);
+    } catch (error) {
+      return formatErrorResponse(error);
+    }
+  }
 }
 
 export const GitToolMethods = getClassMethods(GitTools.prototype);
+
+// ── Helper Functions ─────────────────────────────────────────────
+
+function getVoteLabel(vote: number | undefined): string {
+  switch (vote) {
+    case 10: return '✅ Approved';
+    case 5: return '👍 Approved with Suggestions';
+    case 0: return '⏳ No Vote';
+    case -5: return '⏸️ Waiting for Author';
+    case -10: return '❌ Rejected';
+    default: return `${vote ?? 'N/A'}`;
+  }
+}
+
+function getMergeStrategyLabel(strategy: number | undefined): string {
+  switch (strategy) {
+    case 1: return 'No Fast-Forward';
+    case 2: return 'Squash';
+    case 3: return 'Rebase';
+    case 4: return 'Rebase Merge';
+    default: return `${strategy ?? 'Default'}`;
+  }
+}

@@ -10,15 +10,28 @@ import { TestingCapabilitiesTools } from './Tools/TestingCapabilitiesTools';
 import { DevSecOpsTools } from './Tools/DevSecOpsTools';
 import { ArtifactManagementTools } from './Tools/ArtifactManagementTools';
 import { AIAssistedDevelopmentTools } from './Tools/AIAssistedDevelopmentTools';
+import { BuildTools } from './Tools/BuildTools';
+import { WikiTools } from './Tools/WikiTools';
 import { z } from 'zod';
-import { EntraAuthHandler } from './Services/EntraAuthHandler';
+import { TokenCredentialAuthHandler } from './Services/EntraAuthHandler';
 
 async function main() {
   try {
     // Load configuration
     const azureDevOpsConfig = getAzureDevOpsConfig();
-    if(azureDevOpsConfig.auth?.type === 'entra') {
-      azureDevOpsConfig.entraAuthHandler = await EntraAuthHandler.getInstance();
+
+    // Initialize token credential auth handler based on auth type
+    if (azureDevOpsConfig.auth?.type === 'entra') {
+      azureDevOpsConfig.tokenCredentialAuthHandler = await TokenCredentialAuthHandler.createEntra();
+    } else if (azureDevOpsConfig.auth?.type === 'azcli') {
+      azureDevOpsConfig.tokenCredentialAuthHandler = await TokenCredentialAuthHandler.createAzureCli(
+        azureDevOpsConfig.auth.tenantId
+      );
+    } else if (azureDevOpsConfig.auth?.type === 'interactive') {
+      azureDevOpsConfig.tokenCredentialAuthHandler = await TokenCredentialAuthHandler.createInteractive({
+        tenantId: azureDevOpsConfig.auth.tenantId,
+        clientId: azureDevOpsConfig.auth.clientId,
+      });
     }
     // Load allowed tools
     const allowedTools = getAllowedTools();
@@ -32,6 +45,8 @@ async function main() {
     const devSecOpsTools = new DevSecOpsTools(azureDevOpsConfig);
     const artifactManagementTools = new ArtifactManagementTools(azureDevOpsConfig);
     const aiAssistedDevelopmentTools = new AIAssistedDevelopmentTools(azureDevOpsConfig);
+    const buildTools = new BuildTools(azureDevOpsConfig);
+    const wikiTools = new WikiTools(azureDevOpsConfig);
 
     // Create MCP server
     const server = new McpServer({
@@ -263,8 +278,75 @@ async function main() {
       }
     );
     
+    allowedTools.has("getWorkItemsBatch") && server.tool("getWorkItemsBatch",
+      "Get multiple work items by their IDs in a single efficient call",
+      {
+        ids: z.array(z.number()).describe("Array of work item IDs to retrieve"),
+        fields: z.array(z.string()).optional().describe("Specific fields to return (e.g., ['System.Title', 'System.State'])"),
+      },
+      async (params) => {
+        const result = await workItemTools.getWorkItemsBatch(params);
+        return { content: result.content, rawData: result.rawData, structuredContent: result.structuredContent };
+      }
+    );
+
+    allowedTools.has("getWorkItemRevisions") && server.tool("getWorkItemRevisions",
+      "Get revision/change history for a work item showing all field changes over time",
+      {
+        id: z.number().describe("Work item ID"),
+        top: z.number().optional().describe("Maximum number of revisions to return"),
+        skip: z.number().optional().describe("Number of revisions to skip"),
+      },
+      async (params) => {
+        const result = await workItemTools.getWorkItemRevisions(params);
+        return { content: result.content, rawData: result.rawData, structuredContent: result.structuredContent };
+      }
+    );
+
+    allowedTools.has("getQueryResults") && server.tool("getQueryResults",
+      "Execute a saved WIQL query by its query ID and return the resulting work items",
+      {
+        queryId: z.string().describe("The GUID of the saved query to execute"),
+      },
+      async (params) => {
+        const result = await workItemTools.getQueryResults(params);
+        return { content: result.content, rawData: result.rawData, structuredContent: result.structuredContent };
+      }
+    );
+
+    allowedTools.has("addChildWorkItem") && server.tool("addChildWorkItem",
+      "Create a new work item and link it as a child of an existing parent work item",
+      {
+        parentId: z.number().describe("Parent work item ID"),
+        workItemType: z.string().describe("Type of child work item (e.g., 'Task', 'Bug')"),
+        title: z.string().describe("Title of the child work item"),
+        description: z.string().optional().describe("Description"),
+        assignedTo: z.string().optional().describe("User to assign to"),
+        state: z.string().optional().describe("Initial state"),
+        areaPath: z.string().optional().describe("Area path"),
+        iterationPath: z.string().optional().describe("Iteration path"),
+        additionalFields: z.record(z.any()).optional().describe("Additional fields"),
+      },
+      async (params) => {
+        const result = await workItemTools.addChildWorkItem(params);
+        return { content: result.content, rawData: result.rawData, structuredContent: result.structuredContent };
+      }
+    );
+
+    allowedTools.has("unlinkWorkItem") && server.tool("unlinkWorkItem",
+      "Remove a link/relation from a work item by its relation index. Use getWorkItemById first to see the relations and their indices.",
+      {
+        id: z.number().describe("Work item ID"),
+        relationIndex: z.number().describe("Index of the relation to remove (0-based, from the relations array)"),
+      },
+      async (params) => {
+        const result = await workItemTools.unlinkWorkItem(params);
+        return { content: result.content, rawData: result.rawData, structuredContent: result.structuredContent };
+      }
+    );
+
     // Register Boards & Sprints Tools
-    allowedTools.has("getBoards") && server.tool("getBoards", 
+    allowedTools.has("getBoards") && server.tool("getBoards",
       "Get all boards for a team",
       {
         teamId: z.string().optional().describe("Team ID (uses default team if not specified)")
@@ -957,8 +1039,84 @@ async function main() {
       }
     );
     
+    allowedTools.has("updatePullRequest") && server.tool("updatePullRequest",
+      "Update pull request properties (title, description, status, auto-complete, draft mode, target branch)",
+      {
+        repository: z.string().describe("Repository name or ID"),
+        pullRequestId: z.number().describe("Pull request ID"),
+        title: z.string().optional().describe("New title for the PR"),
+        description: z.string().optional().describe("New description for the PR"),
+        status: z.enum(['active', 'abandoned', 'completed']).optional().describe("New status"),
+        autoCompleteSetBy: z.string().optional().describe("User ID to set as auto-complete initiator"),
+        mergeStrategy: z.enum(['noFastForward', 'rebase', 'rebaseMerge', 'squash']).optional().describe("Merge strategy for auto-complete"),
+        deleteSourceBranch: z.boolean().optional().describe("Delete source branch on completion"),
+        isDraft: z.boolean().optional().describe("Set PR as draft or publish it"),
+        targetRefName: z.string().optional().describe("Change target branch (e.g., 'refs/heads/main')"),
+      },
+      async (params) => {
+        const result = await gitTools.updatePullRequest(params);
+        return { content: result.content, rawData: result.rawData, structuredContent: result.structuredContent };
+      }
+    );
+
+    allowedTools.has("updatePullRequestReviewers") && server.tool("updatePullRequestReviewers",
+      "Add or remove reviewers on an existing pull request",
+      {
+        repository: z.string().describe("Repository name or ID"),
+        pullRequestId: z.number().describe("Pull request ID"),
+        reviewersToAdd: z.array(z.string()).optional().describe("User IDs or email addresses to add as reviewers"),
+        reviewersToRemove: z.array(z.string()).optional().describe("User IDs or email addresses to remove from reviewers"),
+        makeRequired: z.boolean().optional().describe("Make added reviewers required (default false)"),
+      },
+      async (params) => {
+        const result = await gitTools.updatePullRequestReviewers(params);
+        return { content: result.content, rawData: result.rawData, structuredContent: result.structuredContent };
+      }
+    );
+
+    allowedTools.has("replyToComment") && server.tool("replyToComment",
+      "Reply to an existing comment thread on a pull request",
+      {
+        repository: z.string().describe("Repository name or ID"),
+        pullRequestId: z.number().describe("Pull request ID"),
+        threadId: z.number().describe("Thread ID to reply to"),
+        comment: z.string().describe("Reply text content (supports markdown)"),
+      },
+      async (params) => {
+        const result = await gitTools.replyToComment(params);
+        return { content: result.content, rawData: result.rawData, structuredContent: result.structuredContent };
+      }
+    );
+
+    allowedTools.has("updatePullRequestThread") && server.tool("updatePullRequestThread",
+      "Update a comment thread's status (resolve, reactivate, close, etc.)",
+      {
+        repository: z.string().describe("Repository name or ID"),
+        pullRequestId: z.number().describe("Pull request ID"),
+        threadId: z.number().describe("Thread ID to update"),
+        status: z.enum(['active', 'byDesign', 'closed', 'fixed', 'pending', 'unknown', 'wontFix']).describe("New thread status"),
+      },
+      async (params) => {
+        const result = await gitTools.updatePullRequestThread(params);
+        return { content: result.content, rawData: result.rawData, structuredContent: result.structuredContent };
+      }
+    );
+
+    allowedTools.has("createBranch") && server.tool("createBranch",
+      "Create a new branch from a source branch name or commit SHA",
+      {
+        repository: z.string().describe("Repository name or ID"),
+        branchName: z.string().describe("New branch name (e.g., 'feature/my-feature')"),
+        sourceRef: z.string().describe("Source branch name (e.g., 'main') or commit SHA to branch from"),
+      },
+      async (params) => {
+        const result = await gitTools.createBranch(params);
+        return { content: result.content, rawData: result.rawData, structuredContent: result.structuredContent };
+      }
+    );
+
     // Register Testing Capabilities Tools
-    allowedTools.has("runAutomatedTests") && server.tool("runAutomatedTests", 
+    allowedTools.has("runAutomatedTests") && server.tool("runAutomatedTests",
       "Execute automated test suites",
       {
         testSuiteId: z.number().optional().describe("ID of the test suite to run"),
@@ -1830,6 +1988,205 @@ async function main() {
           rawData: result.rawData,
           structuredContent: result.structuredContent
         };
+      }
+    );
+
+    // Register Wiki Tools
+    allowedTools.has("listWikis") && server.tool("listWikis",
+      "List all wikis in the project",
+      {
+        project: z.string().optional().describe("Project name or ID (defaults to configured project)"),
+      },
+      async (params) => {
+        const result = await wikiTools.listWikis(params);
+        return { content: result.content, rawData: result.rawData, structuredContent: result.structuredContent };
+      }
+    );
+
+    allowedTools.has("getWiki") && server.tool("getWiki",
+      "Get details about a specific wiki",
+      {
+        wikiIdentifier: z.string().describe("Wiki name or ID"),
+        project: z.string().optional().describe("Project name or ID"),
+      },
+      async (params) => {
+        const result = await wikiTools.getWiki(params);
+        return { content: result.content, rawData: result.rawData, structuredContent: result.structuredContent };
+      }
+    );
+
+    allowedTools.has("listWikiPages") && server.tool("listWikiPages",
+      "List wiki pages under a path",
+      {
+        wikiIdentifier: z.string().describe("Wiki name or ID"),
+        path: z.string().optional().describe("Path to list pages under (default: root '/')"),
+        recursionLevel: z.string().optional().describe("'oneLevel' (default) or 'full' for all descendants"),
+        project: z.string().optional().describe("Project name or ID"),
+      },
+      async (params) => {
+        const result = await wikiTools.listWikiPages(params);
+        return { content: result.content, rawData: result.rawData, structuredContent: result.structuredContent };
+      }
+    );
+
+    allowedTools.has("getWikiPageContent") && server.tool("getWikiPageContent",
+      "Get the content of a wiki page",
+      {
+        wikiIdentifier: z.string().describe("Wiki name or ID"),
+        path: z.string().optional().describe("Page path (default: root '/')"),
+        project: z.string().optional().describe("Project name or ID"),
+      },
+      async (params) => {
+        const result = await wikiTools.getWikiPageContent(params);
+        return { content: result.content, rawData: result.rawData, structuredContent: result.structuredContent };
+      }
+    );
+
+    allowedTools.has("createOrUpdateWikiPage") && server.tool("createOrUpdateWikiPage",
+      "Create or update a wiki page with the given content",
+      {
+        wikiIdentifier: z.string().describe("Wiki name or ID"),
+        path: z.string().describe("Page path (e.g., '/My Page' or '/Section/Sub Page')"),
+        content: z.string().describe("Page content in markdown format"),
+        comment: z.string().optional().describe("Optional commit comment for the change"),
+        project: z.string().optional().describe("Project name or ID"),
+      },
+      async (params) => {
+        const result = await wikiTools.createOrUpdateWikiPage(params);
+        return { content: result.content, rawData: result.rawData, structuredContent: result.structuredContent };
+      }
+    );
+
+    // Register Build/Pipeline Tools
+    allowedTools.has("getBuilds") && server.tool("getBuilds",
+      "List builds with optional filters (status, result, branch, definition, tags)",
+      {
+        definitions: z.array(z.number()).optional().describe("Filter by definition IDs"),
+        statusFilter: z.string().optional().describe("Filter by status: inProgress, completed, cancelling, postponed, notStarted, all"),
+        resultFilter: z.string().optional().describe("Filter by result: succeeded, partiallySucceeded, failed, canceled"),
+        branchName: z.string().optional().describe("Filter by source branch (e.g., 'refs/heads/main')"),
+        repositoryId: z.string().optional().describe("Filter by repository ID"),
+        repositoryType: z.string().optional().describe("Repository type (e.g., 'TfsGit')"),
+        requestedFor: z.string().optional().describe("Filter by who requested the build"),
+        tagFilters: z.array(z.string()).optional().describe("Filter by tags"),
+        top: z.number().optional().describe("Maximum number of builds to return (default 25)"),
+        queryOrder: z.string().optional().describe("Order: startTimeDescending (default) or startTimeAscending"),
+      },
+      async (params) => {
+        const result = await buildTools.getBuilds(params);
+        return { content: result.content, rawData: result.rawData, structuredContent: result.structuredContent };
+      }
+    );
+
+    allowedTools.has("getBuild") && server.tool("getBuild",
+      "Get detailed information about a specific build by ID",
+      {
+        buildId: z.number().describe("Build ID"),
+      },
+      async (params) => {
+        const result = await buildTools.getBuild(params);
+        return { content: result.content, rawData: result.rawData, structuredContent: result.structuredContent };
+      }
+    );
+
+    allowedTools.has("getBuildLog") && server.tool("getBuildLog",
+      "Get build logs. Without logId returns log metadata list; with logId returns specific log content",
+      {
+        buildId: z.number().describe("Build ID"),
+        logId: z.number().optional().describe("Specific log ID to retrieve content for"),
+        startLine: z.number().optional().describe("Start line for log content"),
+        endLine: z.number().optional().describe("End line for log content"),
+      },
+      async (params) => {
+        const result = await buildTools.getBuildLog(params);
+        return { content: result.content, rawData: result.rawData, structuredContent: result.structuredContent };
+      }
+    );
+
+    allowedTools.has("getBuildChanges") && server.tool("getBuildChanges",
+      "Get changes (commits) associated with a build",
+      {
+        buildId: z.number().describe("Build ID"),
+        top: z.number().optional().describe("Maximum number of changes to return (default 50)"),
+      },
+      async (params) => {
+        const result = await buildTools.getBuildChanges(params);
+        return { content: result.content, rawData: result.rawData, structuredContent: result.structuredContent };
+      }
+    );
+
+    allowedTools.has("getDefinitions") && server.tool("getDefinitions",
+      "List pipeline/build definitions with optional filters",
+      {
+        name: z.string().optional().describe("Filter by definition name (wildcard supported)"),
+        repositoryId: z.string().optional().describe("Filter by repository ID"),
+        repositoryType: z.string().optional().describe("Repository type (e.g., 'TfsGit')"),
+        path: z.string().optional().describe("Filter by folder path (e.g., '\\\\folder')"),
+        top: z.number().optional().describe("Maximum number of definitions to return (default 25)"),
+        includeLatestBuilds: z.boolean().optional().describe("Include latest build info for each definition"),
+      },
+      async (params) => {
+        const result = await buildTools.getDefinitions(params);
+        return { content: result.content, rawData: result.rawData, structuredContent: result.structuredContent };
+      }
+    );
+
+    allowedTools.has("getDefinition") && server.tool("getDefinition",
+      "Get detailed information about a specific pipeline/build definition",
+      {
+        definitionId: z.number().describe("Definition ID"),
+        includeLatestBuilds: z.boolean().optional().describe("Include latest build info"),
+      },
+      async (params) => {
+        const result = await buildTools.getDefinition(params);
+        return { content: result.content, rawData: result.rawData, structuredContent: result.structuredContent };
+      }
+    );
+
+    allowedTools.has("runPipeline") && server.tool("runPipeline",
+      "Queue/trigger a pipeline run",
+      {
+        definitionId: z.number().describe("Pipeline definition ID to run"),
+        sourceBranch: z.string().optional().describe("Source branch (e.g., 'refs/heads/main')"),
+        parameters: z.record(z.string()).optional().describe("Pipeline parameters as key-value pairs"),
+      },
+      async (params) => {
+        const result = await buildTools.runPipeline(params);
+        return { content: result.content, rawData: result.rawData, structuredContent: result.structuredContent };
+      }
+    );
+
+    allowedTools.has("getBuildArtifacts") && server.tool("getBuildArtifacts",
+      "List artifacts produced by a build",
+      {
+        buildId: z.number().describe("Build ID"),
+      },
+      async (params) => {
+        const result = await buildTools.getBuildArtifacts(params);
+        return { content: result.content, rawData: result.rawData, structuredContent: result.structuredContent };
+      }
+    );
+
+    allowedTools.has("getBuildTimeline") && server.tool("getBuildTimeline",
+      "Get build timeline showing stages, jobs, and tasks with their status",
+      {
+        buildId: z.number().describe("Build ID"),
+      },
+      async (params) => {
+        const result = await buildTools.getBuildTimeline(params);
+        return { content: result.content, rawData: result.rawData, structuredContent: result.structuredContent };
+      }
+    );
+
+    allowedTools.has("getBuildWorkItems") && server.tool("getBuildWorkItems",
+      "Get work items associated with a build",
+      {
+        buildId: z.number().describe("Build ID"),
+        top: z.number().optional().describe("Maximum number of work items to return (default 50)"),
+      },
+      async (params) => {
+        const result = await buildTools.getBuildWorkItems(params);
+        return { content: result.content, rawData: result.rawData, structuredContent: result.structuredContent };
       }
     );
 

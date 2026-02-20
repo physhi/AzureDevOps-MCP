@@ -27,7 +27,12 @@ import {
   AddPullRequestCommentParams,
   GetPullRequestFileChangesParams,
   GetPullRequestChangesCountParams,
-  GetAllPullRequestChangesParams
+  GetAllPullRequestChangesParams,
+  UpdatePullRequestParams,
+  UpdatePullRequestReviewersParams,
+  ReplyToCommentParams,
+  UpdatePullRequestThreadParams,
+  CreateBranchParams,
 } from '../Interfaces/CodeAndRepositories';
 
 export class GitService extends AzureDevOpsService {
@@ -1680,5 +1685,179 @@ Original error: ${errorMessage}`);
     // Simply return the clean diff content without verbose annotations
     // The diff itself is self-explanatory with standard +/- markers
     return diffContent;
+  }
+
+  // ── New PR Enhancement Methods ─────────────────────────────────
+
+  /**
+   * Update pull request properties (title, description, status, auto-complete, draft).
+   */
+  public async updatePullRequest(params: UpdatePullRequestParams): Promise<any> {
+    const gitApi = await this.getGitApi();
+    const repositoryId = await this.resolveRepositoryId(params.repository);
+
+    const updatePayload: any = {};
+
+    if (params.title !== undefined) updatePayload.title = params.title;
+    if (params.description !== undefined) updatePayload.description = params.description;
+    if (params.isDraft !== undefined) updatePayload.isDraft = params.isDraft;
+    if (params.targetRefName !== undefined) updatePayload.targetRefName = params.targetRefName;
+
+    if (params.status !== undefined) {
+      const statusMap: Record<string, number> = { 'active': 1, 'abandoned': 3, 'completed': 2 };
+      updatePayload.status = statusMap[params.status] || 1;
+    }
+
+    // Auto-complete configuration
+    if (params.autoCompleteSetBy !== undefined || params.mergeStrategy !== undefined || params.deleteSourceBranch !== undefined) {
+      if (params.autoCompleteSetBy) {
+        // Set auto-complete with completion options
+        updatePayload.autoCompleteSetBy = { id: params.autoCompleteSetBy };
+      }
+      const completionOptions: any = {};
+      if (params.mergeStrategy) {
+        const mergeMap: Record<string, number> = {
+          'noFastForward': 1, 'squash': 2, 'rebase': 3, 'rebaseMerge': 4,
+        };
+        completionOptions.mergeStrategy = mergeMap[params.mergeStrategy] || 1;
+      }
+      if (params.deleteSourceBranch !== undefined) {
+        completionOptions.deleteSourceBranch = params.deleteSourceBranch;
+      }
+      if (Object.keys(completionOptions).length > 0) {
+        updatePayload.completionOptions = completionOptions;
+      }
+    }
+
+    return await gitApi.updatePullRequest(updatePayload, repositoryId, params.pullRequestId, this.config.project);
+  }
+
+  /**
+   * Add or remove reviewers on a pull request.
+   */
+  public async updatePullRequestReviewers(params: UpdatePullRequestReviewersParams): Promise<any> {
+    const gitApi = await this.getGitApi();
+    const repositoryId = await this.resolveRepositoryId(params.repository);
+    const results: any = { added: [], removed: [] };
+
+    if (params.reviewersToAdd && params.reviewersToAdd.length > 0) {
+      for (const reviewer of params.reviewersToAdd) {
+        const reviewerObj: any = {
+          id: reviewer,
+          isRequired: params.makeRequired || false,
+        };
+        const result = await gitApi.createPullRequestReviewer(
+          reviewerObj,
+          repositoryId,
+          params.pullRequestId,
+          reviewer,
+          this.config.project,
+        );
+        results.added.push(result);
+      }
+    }
+
+    if (params.reviewersToRemove && params.reviewersToRemove.length > 0) {
+      for (const reviewer of params.reviewersToRemove) {
+        await gitApi.deletePullRequestReviewer(
+          repositoryId,
+          params.pullRequestId,
+          reviewer,
+          this.config.project,
+        );
+        results.removed.push(reviewer);
+      }
+    }
+
+    return results;
+  }
+
+  /**
+   * Reply to an existing comment thread on a PR.
+   */
+  public async replyToComment(params: ReplyToCommentParams): Promise<any> {
+    const gitApi = await this.getGitApi();
+    const repositoryId = await this.resolveRepositoryId(params.repository);
+
+    const comment = {
+      content: params.comment,
+      parentCommentId: 0, // 0 = reply to thread
+      commentType: 1, // text comment
+    };
+
+    return await gitApi.createComment(
+      comment as any,
+      repositoryId,
+      params.pullRequestId,
+      params.threadId,
+      this.config.project,
+    );
+  }
+
+  /**
+   * Update a comment thread's status (resolve/reactivate).
+   */
+  public async updatePullRequestThread(params: UpdatePullRequestThreadParams): Promise<any> {
+    const gitApi = await this.getGitApi();
+    const repositoryId = await this.resolveRepositoryId(params.repository);
+
+    const statusMap: Record<string, number> = {
+      'active': 1,
+      'fixed': 2,
+      'wontFix': 3,
+      'closed': 4,
+      'byDesign': 5,
+      'pending': 6,
+      'unknown': 0,
+    };
+
+    const threadUpdate = {
+      status: statusMap[params.status] ?? 1,
+    };
+
+    return await gitApi.updateThread(
+      threadUpdate as any,
+      repositoryId,
+      params.pullRequestId,
+      params.threadId,
+      this.config.project,
+    );
+  }
+
+  /**
+   * Create a new branch from a source ref.
+   */
+  public async createBranch(params: CreateBranchParams): Promise<any> {
+    const gitApi = await this.getGitApi();
+    const repositoryId = await this.resolveRepositoryId(params.repository);
+
+    // Resolve source ref to a commit ID
+    let sourceObjectId = params.sourceRef;
+
+    // If sourceRef looks like a branch name, resolve it to commit ID
+    if (!sourceObjectId.match(/^[0-9a-f]{40}$/i)) {
+      const branchName = sourceObjectId.replace(/^refs\/heads\//, '');
+      const branches = await gitApi.getBranches(repositoryId, this.config.project);
+      const branch = branches?.find((b: any) =>
+        b.name === branchName || b.name === `refs/heads/${branchName}`
+      );
+      if (!branch || !branch.commit?.commitId) {
+        throw new Error(`Source branch '${branchName}' not found or has no commits.`);
+      }
+      sourceObjectId = branch.commit.commitId;
+    }
+
+    const branchRef = params.branchName.startsWith('refs/heads/')
+      ? params.branchName
+      : `refs/heads/${params.branchName}`;
+
+    const refUpdate = [{
+      name: branchRef,
+      oldObjectId: '0000000000000000000000000000000000000000',
+      newObjectId: sourceObjectId,
+    }];
+
+    const result = await gitApi.updateRefs(refUpdate, repositoryId, this.config.project);
+    return result?.[0];
   }
 }

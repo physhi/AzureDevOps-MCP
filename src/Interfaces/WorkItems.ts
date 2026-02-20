@@ -118,4 +118,51 @@ export interface CreateLinkServiceParams {
  */
 export interface BulkWorkItemParams {
   workItems: Array<CreateWorkItemParams | UpdateWorkItemParams>;
-} 
+}
+
+/**
+ * Interface for getting multiple work items by IDs
+ */
+export interface GetWorkItemsBatchParams {
+  ids: number[];
+  fields?: string[];
+}
+
+/**
+ * Interface for getting work item revisions
+ */
+export interface GetWorkItemRevisionsParams {
+  id: number;
+  top?: number;
+  skip?: number;
+}
+
+/**
+ * Interface for executing a saved WIQL query by ID
+ */
+export interface GetQueryResultsParams {
+  queryId: string;
+}
+
+/**
+ * Interface for creating a child work item under a parent
+ */
+export interface AddChildWorkItemParams {
+  parentId: number;
+  workItemType: string;
+  title: string;
+  description?: string;
+  assignedTo?: string;
+  state?: string;
+  areaPath?: string;
+  iterationPath?: string;
+  additionalFields?: Record<string, any>;
+}
+
+/**
+ * Interface for unlinking a work item relation
+ */
+export interface UnlinkWorkItemParams {
+  id: number;
+  relationIndex: number;
+}

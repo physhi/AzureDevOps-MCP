@@ -18,7 +18,12 @@ import {
   UpdateWorkItemStateParams,
   AssignWorkItemParams,
   CreateLinkServiceParams,
-  BulkWorkItemParams
+  BulkWorkItemParams,
+  GetWorkItemsBatchParams,
+  GetWorkItemRevisionsParams,
+  GetQueryResultsParams,
+  AddChildWorkItemParams,
+  UnlinkWorkItemParams,
 } from '../Interfaces/WorkItems';
 
 export class WorkItemService extends AzureDevOpsService {
@@ -700,6 +705,161 @@ export class WorkItemService extends AzureDevOpsService {
       };
     } catch (error) {
       console.error('Error in bulk work item operation:', error);
+      throw error;
+    }
+  }
+
+  // ── New Work Item Enhancement Methods ──────────────────────────
+
+  /**
+   * Get multiple work items by IDs in a single call.
+   */
+  public async getWorkItemsBatch(params: GetWorkItemsBatchParams): Promise<any[]> {
+    try {
+      const witApi = await this.getWorkItemTrackingApi();
+      const workItems = await witApi.getWorkItems(
+        params.ids,
+        params.fields,
+        undefined, // asOf
+        WorkItemExpand.Relations,
+      );
+      return workItems || [];
+    } catch (error) {
+      console.error('Error getting work items batch:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Get revision history for a work item.
+   */
+  public async getWorkItemRevisions(params: GetWorkItemRevisionsParams): Promise<any[]> {
+    try {
+      const witApi = await this.getWorkItemTrackingApi();
+      const revisions = await witApi.getRevisions(
+        params.id,
+        params.top,
+        params.skip,
+      );
+      return revisions || [];
+    } catch (error) {
+      console.error('Error getting work item revisions:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Execute a saved WIQL query by query ID and return the work items.
+   */
+  public async getQueryResults(params: GetQueryResultsParams): Promise<any> {
+    try {
+      const witApi = await this.getWorkItemTrackingApi();
+
+      // Execute the stored query
+      const queryResult = await witApi.queryById(
+        params.queryId,
+        { project: this.config.project } as any,
+      );
+
+      if (!queryResult.workItems || queryResult.workItems.length === 0) {
+        return { workItems: [], count: 0, queryType: queryResult.queryType };
+      }
+
+      // Get full work item details for the returned IDs
+      const ids = queryResult.workItems
+        .map((wi: any) => wi.id)
+        .filter((id: number | undefined): id is number => id !== undefined)
+        .slice(0, 200); // Limit to 200
+
+      if (ids.length === 0) {
+        return { workItems: [], count: 0, queryType: queryResult.queryType };
+      }
+
+      const workItems = await witApi.getWorkItems(ids);
+      return {
+        workItems: workItems || [],
+        count: workItems?.length || 0,
+        queryType: queryResult.queryType,
+        columns: queryResult.columns?.map((c: any) => c.referenceName),
+      };
+    } catch (error) {
+      console.error('Error executing saved query:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Create a child work item linked to a parent.
+   */
+  public async addChildWorkItem(params: AddChildWorkItemParams): Promise<any> {
+    try {
+      // First create the work item
+      const createParams: CreateWorkItemParams = {
+        workItemType: params.workItemType,
+        title: params.title,
+        description: params.description,
+        assignedTo: params.assignedTo,
+        state: params.state,
+        areaPath: params.areaPath,
+        iterationPath: params.iterationPath,
+        additionalFields: params.additionalFields,
+      };
+      const child = await this.createWorkItem(createParams);
+
+      if (!child || !child.id) {
+        throw new Error('Failed to create child work item.');
+      }
+
+      // Link child to parent
+      const patchDocument: JsonPatchOperation[] = [
+        {
+          op: Operation.Add,
+          path: '/relations/-',
+          value: {
+            rel: 'System.LinkTypes.Hierarchy-Reverse',
+            url: `${this.config.orgUrl}/_apis/wit/workItems/${params.parentId}`,
+            attributes: { comment: 'Created as child work item' },
+          },
+        },
+      ];
+
+      const witApi = await this.getWorkItemTrackingApi();
+      const updated = await witApi.updateWorkItem(
+        {} as any, // customHeaders
+        patchDocument,
+        child.id,
+        this.config.project,
+      );
+
+      return updated || child;
+    } catch (error) {
+      console.error('Error creating child work item:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Remove a relation (link) from a work item by relation index.
+   */
+  public async unlinkWorkItem(params: UnlinkWorkItemParams): Promise<any> {
+    try {
+      const witApi = await this.getWorkItemTrackingApi();
+
+      const patchDocument: JsonPatchOperation[] = [
+        {
+          op: Operation.Remove,
+          path: `/relations/${params.relationIndex}`,
+        },
+      ];
+
+      return await witApi.updateWorkItem(
+        {} as any,
+        patchDocument,
+        params.id,
+        this.config.project,
+      );
+    } catch (error) {
+      console.error('Error unlinking work item:', error);
       throw error;
     }
   }
