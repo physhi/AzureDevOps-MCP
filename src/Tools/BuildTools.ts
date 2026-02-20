@@ -294,29 +294,37 @@ export class BuildTools {
       }
 
       // Group by type: Stage > Job > Task
+      // Azure DevOps uses "Phase" for job-level and "Job" for the actual job record
       const stages = records.filter((r: any) => r.type === 'Stage');
+      const phases = records.filter((r: any) => r.type === 'Phase');
       const jobs = records.filter((r: any) => r.type === 'Job');
       const tasks = records.filter((r: any) => r.type === 'Task');
 
+
       let md = `## Build #${params.buildId} - Timeline\n\n`;
-      md += `**${stages.length} stage(s), ${jobs.length} job(s), ${tasks.length} task(s)**\n\n`;
+      md += `**${stages.length} stage(s), ${phases.length + jobs.length} job(s), ${tasks.length} task(s)**\n\n`;
 
       for (const stage of stages) {
         md += `### ${getTimelineResultEmoji(stage.result)} Stage: ${stage.name || 'Unknown'}\n`;
-        md += `Status: ${stage.state || '-'} | Result: ${stage.result || '-'} | Duration: ${formatDuration(stage.startTime, stage.finishTime)}\n\n`;
+        md += `Status: ${formatTimelineState(stage.state)} | Result: ${formatTimelineResult(stage.result)} | Duration: ${formatDuration(stage.startTime, stage.finishTime)}\n\n`;
 
-        const stageJobs = jobs.filter((j: any) => j.parentId === stage.id);
+        const stagePhases = phases.filter((p: any) => p.parentId === stage.id);
+        // If no phases, fall back to jobs directly under the stage
+        const stageJobs = stagePhases.length > 0 ? stagePhases : jobs.filter((j: any) => j.parentId === stage.id);
         for (const job of stageJobs) {
           md += `#### ${getTimelineResultEmoji(job.result)} Job: ${job.name || 'Unknown'}\n`;
-          md += `Status: ${job.state || '-'} | Result: ${job.result || '-'} | Duration: ${formatDuration(job.startTime, job.finishTime)}\n\n`;
+          md += `Status: ${formatTimelineState(job.state)} | Result: ${formatTimelineResult(job.result)} | Duration: ${formatDuration(job.startTime, job.finishTime)}\n\n`;
 
-          const jobTasks = tasks.filter((t: any) => t.parentId === job.id);
+          // Tasks may be under Job records (children of Phase), or directly under Phase
+          const childJobIds = jobs.filter((j: any) => j.parentId === job.id).map((j: any) => j.id);
+          const taskParentIds = childJobIds.length > 0 ? childJobIds : [job.id];
+          const jobTasks = tasks.filter((t: any) => taskParentIds.includes(t.parentId));
           if (jobTasks.length > 0) {
             const taskRows = jobTasks.map((t: any) => [
               getTimelineResultEmoji(t.result),
               truncateText(t.name || 'Unknown', 40),
-              t.state || '-',
-              t.result || '-',
+              formatTimelineState(t.state),
+              formatTimelineResult(t.result),
               formatDuration(t.startTime, t.finishTime),
             ]);
             md += markdownTable(['', 'Task', 'State', 'Result', 'Duration'], taskRows);
@@ -423,15 +431,15 @@ function getBuildReasonLabel(reason: number | undefined): string {
   }
 }
 
-function getTimelineResultEmoji(result: string | undefined): string {
-  switch (result?.toLowerCase()) {
-    case 'succeeded': return '✅';
-    case 'succeededwithissues': return '⚠️';
-    case 'failed': return '❌';
-    case 'canceled': return '🚫';
-    case 'skipped': return '⏭️';
-    default: return '🔄';
-  }
+function getTimelineResultEmoji(result: string | number | undefined): string {
+  if (result === undefined || result === null) return '🔄';
+  const r = typeof result === 'number' ? result : String(result).toLowerCase();
+  if (r === 0 || r === 'succeeded') return '✅';
+  if (r === 1 || r === 'succeededwithissues') return '⚠️';
+  if (r === 2 || r === 'failed') return '❌';
+  if (r === 3 || r === 'canceled') return '🚫';
+  if (r === 4 || r === 'skipped') return '⏭️';
+  return '🔄';
 }
 
 function formatDuration(start: string | Date | undefined, end: string | Date | undefined): string {
@@ -450,4 +458,18 @@ function formatDuration(start: string | Date | undefined, end: string | Date | u
   if (hours > 0) return `${hours}h ${minutes % 60}m`;
   if (minutes > 0) return `${minutes}m ${seconds % 60}s`;
   return `${seconds}s`;
+}
+
+function formatTimelineState(state: string | number | undefined): string {
+  if (state === undefined || state === null) return '-';
+  const stateMap: Record<number, string> = { 0: 'Pending', 1: 'In Progress', 2: 'Completed' };
+  if (typeof state === 'number') return stateMap[state] || `${state}`;
+  return String(state);
+}
+
+function formatTimelineResult(result: string | number | undefined): string {
+  if (result === undefined || result === null) return '-';
+  const resultMap: Record<number, string> = { 0: 'Succeeded', 1: 'Succeeded with Issues', 2: 'Failed', 3: 'Canceled', 4: 'Skipped', 5: 'Abandoned' };
+  if (typeof result === 'number') return resultMap[result] || `${result}`;
+  return String(result);
 }

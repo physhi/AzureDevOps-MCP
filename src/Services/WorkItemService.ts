@@ -761,7 +761,7 @@ export class WorkItemService extends AzureDevOpsService {
         { project: this.config.project } as any,
       );
 
-      if (!queryResult.workItems || queryResult.workItems.length === 0) {
+      if (!queryResult || !queryResult.workItems || queryResult.workItems.length === 0) {
         return { workItems: [], count: 0, queryType: queryResult.queryType };
       }
 

@@ -606,7 +606,7 @@ export class GitTools {
     md += `| **Created By** | ${pullRequest.createdBy?.displayName || 'N/A'} |\n`;
     md += `| **Created Date** | ${pullRequest.creationDate ? formatFullDate(pullRequest.creationDate) : 'N/A'} |\n`;
     md += `| **Is Draft** | ${pullRequest.isDraft ? 'Yes' : 'No'} |\n`;
-    md += `| **Merge Status** | ${pullRequest.mergeStatus || 'N/A'} |\n`;
+    md += `| **Merge Status** | ${getMergeStatusLabel(pullRequest.mergeStatus)} |\n`;
     md += `| **Source Branch** | \`${pullRequest.sourceRefName?.replace('refs/heads/', '') || 'N/A'}\` |\n`;
     md += `| **Target Branch** | \`${pullRequest.targetRefName?.replace('refs/heads/', '') || 'N/A'}\` |\n`;
     md += `| **Repository** | ${pullRequest.repository?.name || 'N/A'} |\n`;
@@ -1469,6 +1469,18 @@ function getVoteLabel(vote: number | undefined): string {
     case -5: return '⏸️ Waiting for Author';
     case -10: return '❌ Rejected';
     default: return `${vote ?? 'N/A'}`;
+  }
+}
+
+function getMergeStatusLabel(status: number | undefined): string {
+  switch (status) {
+    case 0: return 'Not Set';
+    case 1: return 'Queued';
+    case 2: return 'Conflicts';
+    case 3: return 'Succeeded';
+    case 4: return 'Rejected by Policy';
+    case 5: return 'Failure';
+    default: return `${status ?? 'N/A'}`;
   }
 }
 
