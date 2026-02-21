@@ -24,8 +24,11 @@ async function main() {
     const azureDevOpsConfig = getAzureDevOpsConfig();
 
     // Initialize token credential auth handler based on auth type
+    console.error(`[Auth] Auth type: ${azureDevOpsConfig.auth?.type}, PAT: ${azureDevOpsConfig.personalAccessToken ? 'set' : 'not set'}`);
     if (azureDevOpsConfig.auth?.type === 'entra') {
+      console.error('[Auth] Initializing Entra (DefaultAzureCredential + InteractiveBrowser fallback)...');
       azureDevOpsConfig.tokenCredentialAuthHandler = await TokenCredentialAuthHandler.createEntra();
+      console.error('[Auth] Entra auth handler initialized successfully.');
     } else if (azureDevOpsConfig.auth?.type === 'azcli') {
       azureDevOpsConfig.tokenCredentialAuthHandler = await TokenCredentialAuthHandler.createAzureCli(
         azureDevOpsConfig.auth.tenantId

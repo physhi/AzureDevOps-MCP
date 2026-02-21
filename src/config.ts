@@ -75,9 +75,11 @@ export function getAzureDevOpsConfig(): AzureDevOpsConfig {
   }
 
   // Authentication configuration
-  const authTypeInput = process.env.AZURE_DEVOPS_AUTH_TYPE || 'pat';
+  // Auto-detect: if no auth type is set and no PAT is provided, fall back to 'entra' (DefaultAzureCredential)
+  const explicitAuthType = process.env.AZURE_DEVOPS_AUTH_TYPE;
+  const autoDetectedType = explicitAuthType || (personalAccessToken ? 'pat' : 'entra');
   const validAuthTypes = ['ntlm', 'basic', 'pat', 'entra', 'azcli', 'interactive'] as const;
-  const authType = (validAuthTypes as readonly string[]).includes(authTypeInput) ? authTypeInput : 'pat';
+  const authType = (validAuthTypes as readonly string[]).includes(autoDetectedType as any) ? autoDetectedType : 'pat';
   const tenantId = process.env.AZURE_DEVOPS_TENANT_ID;
   const clientId = process.env.AZURE_DEVOPS_CLIENT_ID;
 

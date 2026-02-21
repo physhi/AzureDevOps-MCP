@@ -1,6 +1,6 @@
 {
   "name": "@achieveai/azuredevops-mcp",
-  "version": "1.2.2",
+  "version": "1.2.3",
   "main": "dist/index.js",
   "scripts": {
     "build": "tsc",
@@ -42,6 +42,7 @@
   "homepage": "https://github.com/physhi/AzureDevOps-MCP#readme",
   "dependencies": {
     "@azure/identity": "^4.13.0",
+    "@azure/identity-cache-persistence": "^1.2.0",
     "@modelcontextprotocol/sdk": "^1.20.1",
     "azure-devops-node-api": "^15.1.1",
     "dotenv": "^17.2.3",

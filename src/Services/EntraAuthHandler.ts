@@ -1,12 +1,24 @@
 import { AccessToken, DefaultAzureCredential, AzureCliCredential, InteractiveBrowserCredential, TokenCredential } from "@azure/identity";
+import { useIdentityPlugin } from "@azure/identity";
+import { cachePersistencePlugin } from "@azure/identity-cache-persistence";
 import * as VsoBaseInterfaces from "azure-devops-node-api/interfaces/common/VsoBaseInterfaces";
 import { IRequestHandler } from "azure-devops-node-api/interfaces/common/VsoBaseInterfaces";
 import * as azdev from "azure-devops-node-api";
+
+// Enable persistent token cache (encrypted via DPAPI on Windows, Keychain on macOS, libsecret on Linux)
+try {
+  useIdentityPlugin(cachePersistencePlugin);
+} catch {
+  // Plugin may already be registered or unavailable - continue without persistence
+}
 
 /**
  * Azure DevOps scope for token requests.
  */
 const AZURE_DEVOPS_SCOPE = "499b84ac-1321-427f-aa17-267ca6975798/.default";
+
+/** Shared token cache options - enables silent re-auth on subsequent starts. */
+const TOKEN_CACHE_OPTIONS = { enabled: true };
 
 /**
  * Generic auth handler that wraps any @azure/identity TokenCredential.
@@ -19,10 +31,16 @@ export class TokenCredentialAuthHandler implements IRequestHandler {
   constructor(private readonly credential: TokenCredential) {}
 
   /**
-   * Create handler from DefaultAzureCredential (Entra).
+   * Create handler using DefaultAzureCredential with InteractiveBrowserCredential fallback.
+   * Uses InteractiveBrowserCredential with persistent token cache.
+   * First run opens a browser for login; subsequent runs use the cached token silently.
    */
   public static async createEntra(): Promise<TokenCredentialAuthHandler> {
-    const handler = new TokenCredentialAuthHandler(new DefaultAzureCredential());
+    const credential = new InteractiveBrowserCredential({
+      redirectUri: "http://localhost",
+      tokenCachePersistenceOptions: TOKEN_CACHE_OPTIONS,
+    });
+    const handler = new TokenCredentialAuthHandler(credential);
     await handler.ensureToken();
     return handler;
   }
@@ -46,6 +64,7 @@ export class TokenCredentialAuthHandler implements IRequestHandler {
       ...(options?.tenantId && { tenantId: options.tenantId }),
       ...(options?.clientId && { clientId: options.clientId }),
       redirectUri: "http://localhost",
+      tokenCachePersistenceOptions: TOKEN_CACHE_OPTIONS,
     });
     const handler = new TokenCredentialAuthHandler(credential);
     await handler.ensureToken();
