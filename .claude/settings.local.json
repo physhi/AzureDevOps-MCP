@@ -12,6 +12,6 @@
     "sequential-thinking-tools",
     "clarify-doubt",
     "azure-devops"
-  ]
+  ],
+  "enableAllProjectMcpServers": true
 }
-

@@ -46,6 +46,22 @@ export class GitTools {
   }
 
   /**
+   * Generate a work-item reminder for PR create/update responses.
+   */
+  private async getWorkItemReminder(repository: string, pullRequestId: number): Promise<string> {
+    try {
+      const workItems = await this.gitService.getPullRequestWorkItemRefs(repository, pullRequestId);
+      if (workItems.length === 0) {
+        return `\n\n> **Reminder:** No work item is linked to this PR. Consider linking a Bug/User Story/Task using \`linkWorkItemToPullRequest\` so the work is tracked and discoverable.\n`;
+      }
+      const ids = workItems.map(w => `#${w.id}`).join(', ');
+      return `\n\n> **Reminder:** This PR has linked work item(s): ${ids}. Make sure the work item description/comments capture the learnings and context of this change (what was done and why) so it's understandable without reading the code.\n`;
+    } catch {
+      return '';
+    }
+  }
+
+  /**
    * List all repositories
    */
   public async listRepositories(params: ListRepositoriesParams): Promise<McpResponse> {
@@ -558,6 +574,8 @@ export class GitTools {
         md += `**Reviewers:** ${params.reviewers.map((r: any) => r.displayName || r.id || r).join(', ')}\n`;
       }
       if (pullRequest.url) md += `**URL:** ${pullRequest.url}\n`;
+
+      md += await this.getWorkItemReminder(params.repository, pullRequest.pullRequestId!);
 
       return formatMcpResponse(pullRequest, md, false, true);
     } catch (error) {
@@ -1409,6 +1427,8 @@ export class GitTools {
       if (result.autoCompleteSetBy?.displayName) {
         md += `| **Auto-Complete By** | ${result.autoCompleteSetBy.displayName} |\n`;
       }
+
+      md += await this.getWorkItemReminder(params.repository, params.pullRequestId);
 
       return formatMcpResponse(result, md, false, true);
     } catch (error) {

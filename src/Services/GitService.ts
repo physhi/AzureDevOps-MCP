@@ -51,6 +51,20 @@ export class GitService extends AzureDevOpsService {
   }
 
   /**
+   * Get work item references linked to a pull request
+   */
+  public async getPullRequestWorkItemRefs(repository: string, pullRequestId: number): Promise<{ id: number; url?: string }[]> {
+    const gitApi = await this.getGitApi();
+    const repositoryId = await this.resolveRepositoryId(repository);
+    const refs = await gitApi.getPullRequestWorkItemRefs(repositoryId, pullRequestId, this.config.project);
+    if (!refs || refs.length === 0) return [];
+    return refs.map(ref => {
+      const match = ref.url?.match(/workitems?\/(\d+)/i);
+      return { id: match ? parseInt(match[1]) : 0, url: ref.url };
+    }).filter(r => r.id > 0);
+  }
+
+  /**
    * Resolve repository identifier (name or ID) to repository ID
    * Supports hybrid approach: if input is already a GUID, returns it; if name, resolves to ID
    * @param repository - Repository name or ID

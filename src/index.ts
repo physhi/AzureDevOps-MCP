@@ -13,6 +13,7 @@ import { AIAssistedDevelopmentTools } from './Tools/AIAssistedDevelopmentTools';
 import { BuildTools } from './Tools/BuildTools';
 import { WikiTools } from './Tools/WikiTools';
 import { z } from 'zod';
+import { setErrorContext } from './Interfaces/Common';
 
 /** Wrap a value so string-encoded JSON arrays are auto-parsed (some MCP clients send arrays as strings). */
 const coerceArray = (val: unknown) => typeof val === 'string' ? JSON.parse(val) : val;
@@ -39,6 +40,9 @@ async function main() {
         clientId: azureDevOpsConfig.auth.clientId,
       });
     }
+    // Make config available to error formatting for better error hints
+    setErrorContext({ orgUrl: azureDevOpsConfig.orgUrl, project: azureDevOpsConfig.project });
+
     // Load allowed tools
     const allowedTools = getAllowedTools();
     
