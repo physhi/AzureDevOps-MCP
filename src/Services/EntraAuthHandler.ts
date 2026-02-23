@@ -89,8 +89,15 @@ function deleteAuthRecord(label: string): void {
 export class TokenCredentialAuthHandler implements IRequestHandler {
   private token: AccessToken | undefined;
   private authHandler: IRequestHandler | undefined;
+  private credential: TokenCredential;
 
-  constructor(private readonly credential: TokenCredential) {}
+  /** Stored so ensureToken() can rebuild the credential on refresh failure (self-heal). */
+  private authRecordLabel?: string;
+  private credentialOptions?: ConstructorParameters<typeof InteractiveBrowserCredential>[0];
+
+  constructor(credential: TokenCredential) {
+    this.credential = credential;
+  }
 
   /**
    * Create handler using InteractiveBrowserCredential with persistent token cache.
@@ -138,15 +145,26 @@ export class TokenCredentialAuthHandler implements IRequestHandler {
     const existingRecord = loadAuthRecord(label);
     if (existingRecord) {
       try {
-        const credential = new InteractiveBrowserCredential({
+        // Probe with disableAutomaticAuthentication to prevent browser popup.
+        // If the refresh token is expired, this throws AuthenticationRequiredError
+        // instead of silently opening a browser.
+        const probe = new InteractiveBrowserCredential({
           ...credentialOptions,
           authenticationRecord: existingRecord,
+          disableAutomaticAuthentication: true,
         });
-        // Attempt silent token acquisition (no browser)
-        const token = await credential.getToken(AZURE_DEVOPS_SCOPE);
+        const token = await probe.getToken(AZURE_DEVOPS_SCOPE);
         if (token) {
           console.error(`[Auth] Silent authentication succeeded for "${label}".`);
+          // Create the REAL credential WITHOUT disableAutomaticAuthentication
+          // so that ensureToken() can silently refresh during the server's lifetime.
+          const credential = new InteractiveBrowserCredential({
+            ...credentialOptions,
+            authenticationRecord: existingRecord,
+          });
           const handler = new TokenCredentialAuthHandler(credential);
+          handler.authRecordLabel = label;
+          handler.credentialOptions = credentialOptions;
           handler.token = token;
           handler.authHandler = azdev.getHandlerFromToken(token.token);
           return handler;
@@ -167,6 +185,8 @@ export class TokenCredentialAuthHandler implements IRequestHandler {
     }
 
     const handler = new TokenCredentialAuthHandler(credential);
+    handler.authRecordLabel = label;
+    handler.credentialOptions = credentialOptions;
     await handler.ensureToken();
     return handler;
   }
@@ -178,12 +198,33 @@ export class TokenCredentialAuthHandler implements IRequestHandler {
 
   private async ensureToken() {
     if (!this.token || this.isTokenExpired()) {
-      const token = await this.credential.getToken(AZURE_DEVOPS_SCOPE);
-      if (!token) {
-        throw new Error("Failed to acquire Azure DevOps access token.");
+      try {
+        const token = await this.credential.getToken(AZURE_DEVOPS_SCOPE);
+        if (!token) throw new Error("getToken returned null");
+        this.token = token;
+        this.authHandler = azdev.getHandlerFromToken(this.token.token);
+      } catch (err) {
+        // Self-heal: rebuild credential from saved auth record (same as a restart).
+        if (this.authRecordLabel && this.credentialOptions) {
+          console.error(`[Auth] Token refresh failed, attempting self-heal for "${this.authRecordLabel}"...`);
+          const record = loadAuthRecord(this.authRecordLabel);
+          if (record) {
+            const freshCredential = new InteractiveBrowserCredential({
+              ...this.credentialOptions,
+              authenticationRecord: record,
+            });
+            const token = await freshCredential.getToken(AZURE_DEVOPS_SCOPE);
+            if (token) {
+              console.error(`[Auth] Self-heal succeeded for "${this.authRecordLabel}".`);
+              this.credential = freshCredential;
+              this.token = token;
+              this.authHandler = azdev.getHandlerFromToken(token.token);
+              return;
+            }
+          }
+        }
+        throw new Error(`Failed to acquire Azure DevOps access token: ${err}`);
       }
-      this.token = token;
-      this.authHandler = azdev.getHandlerFromToken(this.token.token);
     }
   }
 
