@@ -687,6 +687,7 @@ export class GitTools {
         pullRequestId: params.pullRequestId,
         threads: threads.map((thread: any) => ({
           id: thread.id,
+          status: this.getThreadStatusLabel(thread.status),
           type: thread.properties?.CodeReviewThreadType?.$value,
           filePath: thread.threadContext?.filePath,
           lineStart: thread.threadContext?.rightFileStart?.line,
@@ -701,7 +702,13 @@ export class GitTools {
         })),
         summary: {
           totalThreads: threads.length,
-          totalComments: threads.reduce((sum: number, t: any) => sum + (t.comments?.length || 0), 0)
+          totalComments: threads.reduce((sum: number, t: any) => sum + (t.comments?.length || 0), 0),
+          active: threads.filter((t: any) => this.getThreadStatusLabel(t.status) === 'active').length,
+          fixed: threads.filter((t: any) => this.getThreadStatusLabel(t.status) === 'fixed').length,
+          closed: threads.filter((t: any) => this.getThreadStatusLabel(t.status) === 'closed').length,
+          byDesign: threads.filter((t: any) => this.getThreadStatusLabel(t.status) === 'byDesign').length,
+          wontFix: threads.filter((t: any) => this.getThreadStatusLabel(t.status) === 'wontFix').length,
+          pending: threads.filter((t: any) => this.getThreadStatusLabel(t.status) === 'pending').length
         }
       };
 
@@ -733,13 +740,29 @@ export class GitTools {
     const generalCount = threads.filter((t: any) => t.properties?.CodeReviewThreadType?.$value === 'General').length;
     const systemCount = threads.length - codeReviewCount - generalCount;
 
+    // Calculate status counts
+    const activeCount = threads.filter((t: any) => this.getThreadStatusLabel(t.status) === 'active').length;
+    const fixedCount = threads.filter((t: any) => this.getThreadStatusLabel(t.status) === 'fixed').length;
+    const closedCount = threads.filter((t: any) => this.getThreadStatusLabel(t.status) === 'closed').length;
+    const resolvedCount = fixedCount + closedCount;
+
     // START WITH SUMMARY AT TOP
     let document = `## PR #${pullRequestId} Comments\n\n`;
     document += `**${threads.length} threads** | **${commentCount} comments**`;
     if (codeReviewCount > 0 || generalCount > 0 || systemCount > 0) {
       document += ` | ${codeReviewCount} code review, ${generalCount} general, ${systemCount} system`;
     }
-    document += `\n\n---\n\n`;
+    document += `\n`;
+    // Status breakdown
+    const statusParts: string[] = [];
+    if (activeCount > 0) statusParts.push(`${activeCount} active`);
+    if (resolvedCount > 0) statusParts.push(`${resolvedCount} resolved`);
+    const pendingCount = threads.filter((t: any) => this.getThreadStatusLabel(t.status) === 'pending').length;
+    if (pendingCount > 0) statusParts.push(`${pendingCount} pending`);
+    if (statusParts.length > 0) {
+      document += `**Status:** ${statusParts.join(', ')}\n`;
+    }
+    document += `\n---\n\n`;
 
     threads.forEach((thread: any, index: number) => {
       document += this.formatCommentThread(thread, index + 1);
@@ -755,8 +778,9 @@ export class GitTools {
   private formatCommentThread(thread: any, threadNumber: number): string {
     const threadType = thread.properties?.CodeReviewThreadType?.$value || 'Unknown';
     const typeLabel = this.getThreadTypeDescription(threadType);
+    const statusLabel = this.getThreadStatusLabel(thread.status);
 
-    let threadDoc = `### ${threadNumber}. ${typeLabel}`;
+    let threadDoc = `### ${threadNumber}. [${typeLabel}] (Thread #${thread.id} — ${statusLabel})`;
 
     // Add file context if available (inline)
     if (thread.threadContext?.filePath) {
@@ -813,6 +837,22 @@ export class GitTools {
       case 'ReviewersUpdate': return '👥 Reviewers Change';
       case 'IsDraftUpdate': return '📝 Draft Change';
       default: return threadType || 'Unknown';
+    }
+  }
+
+  /**
+   * Maps Azure DevOps thread status enum to a human-readable label.
+   * Status enum: 0=unknown, 1=active, 2=fixed, 3=wontFix, 4=closed, 5=byDesign, 6=pending
+   */
+  private getThreadStatusLabel(status: number | undefined): string {
+    switch (status) {
+      case 1: return 'active';
+      case 2: return 'fixed';
+      case 3: return 'wontFix';
+      case 4: return 'closed';
+      case 5: return 'byDesign';
+      case 6: return 'pending';
+      default: return 'unknown';
     }
   }
 
