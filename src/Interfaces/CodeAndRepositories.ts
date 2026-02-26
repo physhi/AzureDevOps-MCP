@@ -112,6 +112,7 @@ export interface CreatePullRequestParams {
 export interface GetPullRequestParams {
   repository: string;
   pullRequestId: number;
+  include?: ('policies' | 'description' | 'reviewers' | 'workItems' | 'completionOptions' | 'files')[];
 }
 
 /**

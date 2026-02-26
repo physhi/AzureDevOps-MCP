@@ -874,11 +874,20 @@ async function main() {
       }
     );
     
-    allowedTools.has("getPullRequest") && server.tool("getPullRequest", 
-      "Fetch comprehensive details about a specific pull request by its ID within a repository. Returns all PR metadata including title, description, status, source and target branches, creator, reviewers, and voting status. Use this to get the full state of a pull request. Supports both repository names and IDs.",
+    allowedTools.has("getPullRequest") && server.tool("getPullRequest",
+      "Fetch details about a pull request. Returns a compact overview by default (metadata, truncated description, top reviewers, policy check status, work item IDs). " +
+      "Use 'include' to expand specific sections in full: " +
+      "'description' (full PR description text), " +
+      "'reviewers' (all reviewers with votes and required/optional status), " +
+      "'policies' (build validations, required reviewer checks, merge strategy checks — with pass/fail/running status), " +
+      "'workItems' (linked work items with title, type, state, assignee), " +
+      "'completionOptions' (merge strategy, delete branch, commit message), " +
+      "'files' (changed file list — prefer getAllPullRequestChanges for large diffs). " +
+      "Supports both repository names and IDs.",
       {
         repository: z.string().describe("The repository name (e.g., 'MyProject') or ID (GUID) containing the pull request. Repository names are case-insensitive."),
-        pullRequestId: z.coerce.number().describe("The numeric ID of the pull request to retrieve. This is the PR number shown in the Azure DevOps UI (e.g., PR #123).")
+        pullRequestId: z.coerce.number().describe("The numeric ID of the pull request to retrieve. This is the PR number shown in the Azure DevOps UI (e.g., PR #123)."),
+        include: z.array(z.enum(['policies', 'description', 'reviewers', 'workItems', 'completionOptions', 'files'])).optional().describe("Sections to return in full detail. When omitted, returns compact overview with all sections truncated. Specify sections you need full data for.")
       },
       async (params, extra) => {
         const result = await gitTools.getPullRequest(params);

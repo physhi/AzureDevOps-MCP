@@ -612,78 +612,193 @@ export class GitTools {
   }
 
   /**
-   * Formats pull request data into readable text format
+   * Formats pull request data into readable text format.
+   * Supports two modes:
+   * - Compact (default, no include): all sections shown but large ones truncated
+   * - Detail (include has values): only requested sections shown in full
    */
   private formatPullRequestText(pullRequest: any): string {
+    const include: string[] | undefined = pullRequest._include;
+    const isDetailMode = include && include.length > 0;
+
     let md = `## Pull Request #${pullRequest.pullRequestId || 'N/A'}\n\n`;
     md += `### ${pullRequest.title || 'N/A'}\n\n`;
 
-    // Status & meta info table
-    md += `| Property | Value |\n|---|---|\n`;
-    md += `| **Status** | ${getPrStatusString(pullRequest.status)} |\n`;
-    md += `| **Created By** | ${pullRequest.createdBy?.displayName || 'N/A'} |\n`;
-    md += `| **Created Date** | ${pullRequest.creationDate ? formatFullDate(pullRequest.creationDate) : 'N/A'} |\n`;
-    md += `| **Is Draft** | ${pullRequest.isDraft ? 'Yes' : 'No'} |\n`;
-    md += `| **Merge Status** | ${getMergeStatusLabel(pullRequest.mergeStatus)} |\n`;
-    md += `| **Source Branch** | \`${pullRequest.sourceRefName?.replace('refs/heads/', '') || 'N/A'}\` |\n`;
-    md += `| **Target Branch** | \`${pullRequest.targetRefName?.replace('refs/heads/', '') || 'N/A'}\` |\n`;
-    md += `| **Repository** | ${pullRequest.repository?.name || 'N/A'} |\n`;
-    md += `| **Source Commit** | \`${truncateText(pullRequest.lastMergeSourceCommit?.commitId || 'N/A', 12)}\` |\n`;
-    md += `| **Target Commit** | \`${truncateText(pullRequest.lastMergeTargetCommit?.commitId || 'N/A', 12)}\` |\n`;
-    if (pullRequest.closedDate) {
-      md += `| **Closed Date** | ${formatFullDate(pullRequest.closedDate)} |\n`;
-    }
-    if (pullRequest.autoCompleteSetBy?.displayName) {
-      md += `| **Auto-Complete By** | ${pullRequest.autoCompleteSetBy.displayName} |\n`;
+    // Overview (always shown — small, fixed size)
+    if (!isDetailMode || true) {
+      md += `| Property | Value |\n|---|---|\n`;
+      md += `| **Status** | ${getPrStatusString(pullRequest.status)} |\n`;
+      md += `| **Created By** | ${pullRequest.createdBy?.displayName || 'N/A'} |\n`;
+      md += `| **Created Date** | ${pullRequest.creationDate ? formatFullDate(pullRequest.creationDate) : 'N/A'} |\n`;
+      md += `| **Is Draft** | ${pullRequest.isDraft ? 'Yes' : 'No'} |\n`;
+      md += `| **Merge Status** | ${getMergeStatusLabel(pullRequest.mergeStatus)} |\n`;
+      md += `| **Source Branch** | \`${pullRequest.sourceRefName?.replace('refs/heads/', '') || 'N/A'}\` |\n`;
+      md += `| **Target Branch** | \`${pullRequest.targetRefName?.replace('refs/heads/', '') || 'N/A'}\` |\n`;
+      md += `| **Repository** | ${pullRequest.repository?.name || 'N/A'} |\n`;
+      md += `| **Source Commit** | \`${truncateText(pullRequest.lastMergeSourceCommit?.commitId || 'N/A', 12)}\` |\n`;
+      md += `| **Target Commit** | \`${truncateText(pullRequest.lastMergeTargetCommit?.commitId || 'N/A', 12)}\` |\n`;
+      if (pullRequest.closedDate) {
+        md += `| **Closed Date** | ${formatFullDate(pullRequest.closedDate)} |\n`;
+      }
+      if (pullRequest.autoCompleteSetBy?.displayName) {
+        md += `| **Auto-Complete By** | ${pullRequest.autoCompleteSetBy.displayName} |\n`;
+      }
     }
 
     // Description
-    md += `\n### Description\n\n`;
-    md += `${pullRequest.description || '_No description provided._'}\n`;
-
-    // Reviewers
-    if (pullRequest.reviewers && pullRequest.reviewers.length > 0) {
-      md += `\n### Reviewers\n\n`;
-      const reviewerRows = pullRequest.reviewers.map((r: any) => [
-        r.displayName || 'Unknown',
-        getVoteLabel(r.vote),
-        r.isRequired ? 'Required' : 'Optional',
-      ]);
-      md += markdownTable(['Reviewer', 'Vote', 'Type'], reviewerRows);
+    if (!isDetailMode) {
+      // Compact: truncate to ~200 chars
+      md += `\n### Description\n\n`;
+      const desc = pullRequest.description || '_No description provided._';
+      if (desc.length > 200) {
+        md += `${desc.substring(0, 200)}...\n\n_[truncated — use include: ["description"] for full]_\n`;
+      } else {
+        md += `${desc}\n`;
+      }
+    } else if (include!.includes('description')) {
+      // Detail: full description
+      md += `\n### Description\n\n`;
+      md += `${pullRequest.description || '_No description provided._'}\n`;
     }
 
-    // Labels/Tags
+    // Reviewers
+    if (!isDetailMode) {
+      // Compact: show count + required reviewers only, truncate if >5
+      if (pullRequest.reviewers && pullRequest.reviewers.length > 0) {
+        md += `\n### Reviewers (${pullRequest.reviewers.length})\n\n`;
+        const requiredReviewers = pullRequest.reviewers.filter((r: any) => r.isRequired);
+        const displayReviewers = pullRequest.reviewers.length > 5
+          ? [...requiredReviewers.slice(0, 5)]
+          : pullRequest.reviewers;
+        const reviewerRows = displayReviewers.map((r: any) => [
+          r.displayName || 'Unknown',
+          getVoteLabel(r.vote),
+          r.isRequired ? 'Required' : 'Optional',
+        ]);
+        md += markdownTable(['Reviewer', 'Vote', 'Type'], reviewerRows);
+        if (pullRequest.reviewers.length > 5) {
+          md += `\n\n_...and ${pullRequest.reviewers.length - displayReviewers.length} more — use include: ["reviewers"] for full list_\n`;
+        }
+      }
+    } else if (include!.includes('reviewers')) {
+      // Detail: full reviewer list
+      if (pullRequest.reviewers && pullRequest.reviewers.length > 0) {
+        md += `\n### Reviewers\n\n`;
+        const reviewerRows = pullRequest.reviewers.map((r: any) => [
+          r.displayName || 'Unknown',
+          getVoteLabel(r.vote),
+          r.isRequired ? 'Required' : 'Optional',
+        ]);
+        md += markdownTable(['Reviewer', 'Vote', 'Type'], reviewerRows);
+      }
+    }
+
+    // Labels/Tags (always shown — small)
     if (pullRequest.labels && pullRequest.labels.length > 0) {
       md += `\n### Labels\n\n`;
       md += pullRequest.labels.map((l: any) => `\`${l.name || l}\``).join(', ') + '\n';
     }
 
-    // Work items
-    if (pullRequest.workItems && pullRequest.workItems.length > 0) {
-      md += `\n### Associated Work Items\n\n`;
-      const wiRows = pullRequest.workItems.map((wi: any) => [
-        `#${wi.id}`,
-        wi.title || 'N/A',
-        wi.type || '-',
-        wi.state || '-',
-        wi.assignedTo || '-',
-      ]);
-      md += markdownTable(['ID', 'Title', 'Type', 'State', 'Assigned To'], wiRows);
+    // Policy Checks (shown in compact mode always, or when explicitly requested)
+    if (!isDetailMode || include!.includes('policies')) {
+      md += this.formatPolicyChecksSection(pullRequest.policyEvaluations);
     }
 
-    // Completion options
-    if (pullRequest.completionOptions) {
-      md += `\n### Completion Options\n\n`;
-      md += `| Option | Value |\n|---|---|\n`;
-      if (pullRequest.completionOptions.mergeStrategy !== undefined) {
-        md += `| **Merge Strategy** | ${getMergeStrategyLabel(pullRequest.completionOptions.mergeStrategy)} |\n`;
+    // Work Items
+    if (!isDetailMode) {
+      // Compact: show count + IDs only, truncate if >3
+      if (pullRequest.workItems && pullRequest.workItems.length > 0) {
+        md += `\n### Work Items (${pullRequest.workItems.length})\n\n`;
+        const displayItems = pullRequest.workItems.slice(0, 3);
+        const wiRows = displayItems.map((wi: any) => [
+          `#${wi.id}`,
+          truncateText(wi.title || 'N/A', 50),
+          wi.type || '-',
+          wi.state || '-',
+        ]);
+        md += markdownTable(['ID', 'Title', 'Type', 'State'], wiRows);
+        if (pullRequest.workItems.length > 3) {
+          md += `\n\n_...and ${pullRequest.workItems.length - 3} more — use include: ["workItems"] for full list_\n`;
+        }
       }
-      if (pullRequest.completionOptions.deleteSourceBranch !== undefined) {
-        md += `| **Delete Source Branch** | ${pullRequest.completionOptions.deleteSourceBranch ? 'Yes' : 'No'} |\n`;
+    } else if (include!.includes('workItems')) {
+      // Detail: full work items
+      if (pullRequest.workItems && pullRequest.workItems.length > 0) {
+        md += `\n### Associated Work Items\n\n`;
+        const wiRows = pullRequest.workItems.map((wi: any) => [
+          `#${wi.id}`,
+          wi.title || 'N/A',
+          wi.type || '-',
+          wi.state || '-',
+          wi.assignedTo || '-',
+        ]);
+        md += markdownTable(['ID', 'Title', 'Type', 'State', 'Assigned To'], wiRows);
       }
-      if (pullRequest.completionOptions.mergeCommitMessage) {
-        md += `| **Merge Commit Message** | ${truncateText(pullRequest.completionOptions.mergeCommitMessage, 60)} |\n`;
+    }
+
+    // Files hint (compact only — files have dedicated tools)
+    if (!isDetailMode) {
+      md += `\n### Files\n\n_Use \`getPullRequestChangesCount\` or \`getAllPullRequestChanges\` for file details._\n`;
+    }
+
+    // Completion Options
+    if (!isDetailMode) {
+      // Compact: only show if auto-complete is set
+      if (pullRequest.autoCompleteSetBy?.displayName && pullRequest.completionOptions) {
+        md += `\n### Completion Options\n\n`;
+        md += `| Option | Value |\n|---|---|\n`;
+        if (pullRequest.completionOptions.mergeStrategy !== undefined) {
+          md += `| **Merge Strategy** | ${getMergeStrategyLabel(pullRequest.completionOptions.mergeStrategy)} |\n`;
+        }
+        if (pullRequest.completionOptions.deleteSourceBranch !== undefined) {
+          md += `| **Delete Source Branch** | ${pullRequest.completionOptions.deleteSourceBranch ? 'Yes' : 'No'} |\n`;
+        }
       }
+    } else if (include!.includes('completionOptions')) {
+      // Detail: full completion options
+      if (pullRequest.completionOptions) {
+        md += `\n### Completion Options\n\n`;
+        md += `| Option | Value |\n|---|---|\n`;
+        if (pullRequest.completionOptions.mergeStrategy !== undefined) {
+          md += `| **Merge Strategy** | ${getMergeStrategyLabel(pullRequest.completionOptions.mergeStrategy)} |\n`;
+        }
+        if (pullRequest.completionOptions.deleteSourceBranch !== undefined) {
+          md += `| **Delete Source Branch** | ${pullRequest.completionOptions.deleteSourceBranch ? 'Yes' : 'No'} |\n`;
+        }
+        if (pullRequest.completionOptions.mergeCommitMessage) {
+          md += `| **Merge Commit Message** | ${pullRequest.completionOptions.mergeCommitMessage} |\n`;
+        }
+      }
+    }
+
+    return md;
+  }
+
+  /**
+   * Formats policy evaluation records into a markdown section
+   */
+  private formatPolicyChecksSection(evaluations: any[] | undefined): string {
+    if (!evaluations || evaluations.length === 0) {
+      return '\n### Policy Checks\n\n_No policy evaluations found._\n';
+    }
+
+    let md = '\n### Policy Checks\n\n';
+
+    const rows = evaluations.map((ev: any) => {
+      const policyName = ev.configuration?.type?.displayName || ev.configuration?.settings?.displayName || 'Unknown Policy';
+      const isBlocking = ev.configuration?.isBlocking;
+      const status = ev.status;
+      const statusLabel = getPolicyStatusLabel(status);
+      return [policyName, statusLabel, isBlocking ? 'Yes' : 'No'];
+    });
+
+    md += markdownTable(['Policy', 'Status', 'Required'], rows);
+
+    // Summary: count required passing
+    const required = evaluations.filter((ev: any) => ev.configuration?.isBlocking);
+    const requiredPassing = required.filter((ev: any) => ev.status === 2); // Approved = 2
+    if (required.length > 0) {
+      md += `\n\n**${requiredPassing.length}/${required.length} required checks passing**\n`;
     }
 
     return md;
@@ -1551,5 +1666,17 @@ function getMergeStrategyLabel(strategy: number | undefined): string {
     case 3: return 'Rebase';
     case 4: return 'Rebase Merge';
     default: return `${strategy ?? 'Default'}`;
+  }
+}
+
+function getPolicyStatusLabel(status: number | undefined): string {
+  switch (status) {
+    case 0: return '⏳ Queued';
+    case 1: return '🔄 Running';
+    case 2: return '✅ Approved';
+    case 3: return '❌ Rejected';
+    case 4: return '➖ N/A';
+    case 5: return '⚠️ Broken';
+    default: return `Unknown (${status})`;
   }
 }

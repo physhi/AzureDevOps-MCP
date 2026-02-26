@@ -822,6 +822,29 @@ export class GitService extends AzureDevOpsService {
   /**
    * Get pull request by ID
    */
+  /**
+   * Get policy evaluations for a pull request
+   */
+  public async getPolicyEvaluations(repository: string, pullRequestId: number): Promise<any[]> {
+    try {
+      const policyApi = await this.connection.getPolicyApi();
+
+      // Need project GUID for artifact ID
+      const coreApi = await this.connection.getCoreApi();
+      const project = await coreApi.getProject(this.config.project);
+      const projectId = project.id;
+
+      // Artifact ID format uses %2F between segments (per MEMORY.md)
+      const artifactId = `vstfs:///CodeReview/CodeReviewId/${projectId}%2F${pullRequestId}`;
+
+      const evaluations = await policyApi.getPolicyEvaluations(this.config.project, artifactId);
+      return evaluations || [];
+    } catch (error) {
+      console.error(`Error fetching policy evaluations for PR ${pullRequestId}:`, error);
+      return [];
+    }
+  }
+
   public async getPullRequest(params: GetPullRequestParams): Promise<any> {
     try {
       const gitApi = await this.getGitApi();
@@ -884,6 +907,20 @@ export class GitService extends AzureDevOpsService {
         console.error(`Error fetching work items for PR ${params.pullRequestId}:`, workItemError);
         enhancedPullRequest.workItems = [];
       }
+
+      // Fetch policy evaluations (always in compact mode, or when explicitly requested)
+      const include = params.include;
+      if (!include || include.length === 0 || include.includes('policies')) {
+        try {
+          const evaluations = await this.getPolicyEvaluations(params.repository, params.pullRequestId);
+          enhancedPullRequest.policyEvaluations = evaluations;
+        } catch {
+          enhancedPullRequest.policyEvaluations = [];
+        }
+      }
+
+      // Pass include through so the formatter knows what mode to use
+      enhancedPullRequest._include = include;
 
       return enhancedPullRequest;
     } catch (error) {
