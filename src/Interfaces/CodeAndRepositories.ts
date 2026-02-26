@@ -121,6 +121,8 @@ export interface GetPullRequestCommentsParams {
   repository: string;
   pullRequestId: number;
   threadId?: number;
+  status?: 'active' | 'fixed' | 'wontFix' | 'closed' | 'byDesign' | 'pending';
+  authorName?: string;
   top?: number;
   skip?: number;
 }
@@ -192,6 +194,8 @@ export interface AddPullRequestInlineCommentParams {
   position: {
     line: number;
     offset: number;
+    endLine?: number;
+    endOffset?: number;
   };
   path: string;
 }

@@ -912,12 +912,36 @@ export class GitService extends AzureDevOpsService {
         
         return thread;
       } else {
-        const threads = await gitApi.getThreads(
+        let threads = await gitApi.getThreads(
           repositoryId,
           params.pullRequestId,
           this.config.project
         );
-        
+
+        // Apply status filter
+        if (params.status && threads) {
+          const statusMap: Record<string, number> = {
+            'active': 1, 'fixed': 2, 'wontFix': 3, 'closed': 4, 'byDesign': 5, 'pending': 6,
+          };
+          const targetStatus = statusMap[params.status];
+          if (targetStatus !== undefined) {
+            threads = threads.filter((t: any) => t.status === targetStatus);
+          }
+        }
+
+        // Apply author filter (case-insensitive match on display name or unique name)
+        if (params.authorName && threads) {
+          const authorLower = params.authorName.toLowerCase();
+          threads = threads.filter((t: any) =>
+            t.comments?.some((c: any) =>
+              c.parentCommentId === 0 && (
+                c.author?.displayName?.toLowerCase().includes(authorLower) ||
+                c.author?.uniqueName?.toLowerCase().includes(authorLower)
+              )
+            )
+          );
+        }
+
         return threads;
       }
     } catch (error) {
@@ -1086,6 +1110,10 @@ Note: You can only add inline comments to files that have been modified in the P
         filePath: params.path,
       };
 
+      // Compute end position: use explicit endLine/endOffset if provided, otherwise default to same line +1 offset
+      const endLine = params.position.endLine ?? params.position.line;
+      const endOffset = params.position.endOffset ?? (params.position.offset + 1);
+
       // Handle different change types according to Azure DevOps API documentation
       if (changeEntry.changeType === VersionControlChangeType.Add) {
         // ADDED file: leftFile positions should be null, rightFile positions are for the new file
@@ -1096,8 +1124,8 @@ Note: You can only add inline comments to files that have been modified in the P
           offset: params.position.offset
         };
         threadContext.rightFileEnd = {
-          line: params.position.line,
-          offset: params.position.offset + 1
+          line: endLine,
+          offset: endOffset
         };
       } else if (changeEntry.changeType === VersionControlChangeType.Delete) {
         // DELETED file: rightFile positions should be null, leftFile positions are for the deleted content
@@ -1106,8 +1134,8 @@ Note: You can only add inline comments to files that have been modified in the P
           offset: params.position.offset
         };
         threadContext.leftFileEnd = {
-          line: params.position.line,
-          offset: params.position.offset + 1
+          line: endLine,
+          offset: endOffset
         };
         threadContext.rightFileStart = null;
         threadContext.rightFileEnd = null;
@@ -1120,8 +1148,8 @@ Note: You can only add inline comments to files that have been modified in the P
           offset: params.position.offset
         };
         threadContext.rightFileEnd = {
-          line: params.position.line,
-          offset: params.position.offset + 1
+          line: endLine,
+          offset: endOffset
         };
       }
 

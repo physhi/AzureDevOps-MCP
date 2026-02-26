@@ -891,11 +891,13 @@ async function main() {
     );
     
     allowedTools.has("getPullRequestComments") && server.tool("getPullRequestComments",
-      "Retrieve all comment threads and associated comments for a pull request. Returns a summary and organized list of threads including code review comments (with file/line context) and general discussions. Optionally filter to a specific thread by ID or use pagination for PRs with extensive discussions. Supports both repository names and IDs.",
+      "Retrieve all comment threads and associated comments for a pull request. Returns a summary and organized list of threads including code review comments (with file/line context) and general discussions. Optionally filter by thread status (e.g., only 'active' unresolved threads), author name, specific thread ID, or use pagination. Supports both repository names and IDs.",
       {
         repository: z.string().describe("The repository name (e.g., 'MyProject') or ID (GUID) containing the pull request. Repository names are case-insensitive."),
         pullRequestId: z.coerce.number().describe("The numeric ID of the pull request to retrieve comments from. This is the PR number shown in the Azure DevOps UI."),
         threadId: z.coerce.number().optional().describe("Optional ID of a specific comment thread to retrieve. If provided, only returns the specified thread rather than all threads."),
+        status: z.enum(['active', 'fixed', 'wontFix', 'closed', 'byDesign', 'pending']).optional().describe("Filter threads by status. Use 'active' to see only unresolved threads, 'fixed' for resolved ones, etc."),
+        authorName: z.string().optional().describe("Filter threads by author display name or email (case-insensitive partial match). Only threads where the root comment was authored by a matching user are returned."),
         top: z.coerce.number().optional().describe("Maximum number of comment threads to return in the response. Use this for pagination in PRs with many comments."),
         skip: z.coerce.number().optional().describe("Number of comment threads to skip before starting to return results. Use with 'top' for implementing pagination.")
       },
@@ -952,9 +954,11 @@ async function main() {
         pullRequestId: z.coerce.number().describe("The numeric ID of the pull request where the comment will be added. This is the PR number shown in the Azure DevOps UI."),
         comment: z.string().describe("The text content of the comment to add. Can include markdown formatting. Should be specific to the line of code being commented on."),
         position: z.object({
-          line: z.coerce.number().describe("The 1-based line number in the file where the comment should be anchored. Must be a line visible in the PR diff (added, removed, or context line)."),
-          offset: z.coerce.number().describe("The character offset within the line where the comment should be anchored. Typically use 1 for beginning of line.")
-        }).describe("The exact position within the file where the comment will be anchored. Both line and offset are required."),
+          line: z.coerce.number().describe("The 1-based line number in the file where the comment starts. Must be a line visible in the PR diff (added, removed, or context line)."),
+          offset: z.coerce.number().describe("The character offset within the start line. Typically use 1 for beginning of line."),
+          endLine: z.coerce.number().optional().describe("Optional 1-based end line number for multi-line range comments. If omitted, the comment targets a single line."),
+          endOffset: z.coerce.number().optional().describe("Optional character offset within the end line. Required when endLine is provided. Typically use 1 for end of selection.")
+        }).describe("The position within the file where the comment will be anchored. Use line/offset for single-line comments, add endLine/endOffset for multi-line range comments."),
         path: z.string().describe("The full path to the file within the repository that the comment relates to. Must be a file changed in the PR (e.g., '/src/Services/UserService.cs').")
       },
       async (params, extra) => {
