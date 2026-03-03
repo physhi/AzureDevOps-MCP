@@ -90,6 +90,7 @@ export class TokenCredentialAuthHandler implements IRequestHandler {
   private token: AccessToken | undefined;
   private authHandler: IRequestHandler | undefined;
   private credential: TokenCredential;
+  private refreshTimer?: ReturnType<typeof setInterval>;
 
   /** Stored so ensureToken() can rebuild the credential on refresh failure (self-heal). */
   private authRecordLabel?: string;
@@ -117,6 +118,7 @@ export class TokenCredentialAuthHandler implements IRequestHandler {
     const credential = new AzureCliCredential(tenantId ? { tenantId } : undefined);
     const handler = new TokenCredentialAuthHandler(credential);
     await handler.ensureToken();
+    handler.startProactiveRefresh();
     return handler;
   }
 
@@ -167,6 +169,7 @@ export class TokenCredentialAuthHandler implements IRequestHandler {
           handler.credentialOptions = credentialOptions;
           handler.token = token;
           handler.authHandler = azdev.getHandlerFromToken(token.token);
+          handler.startProactiveRefresh();
           return handler;
         }
       } catch {
@@ -188,6 +191,7 @@ export class TokenCredentialAuthHandler implements IRequestHandler {
     handler.authRecordLabel = label;
     handler.credentialOptions = credentialOptions;
     await handler.ensureToken();
+    handler.startProactiveRefresh();
     return handler;
   }
 
@@ -228,6 +232,43 @@ export class TokenCredentialAuthHandler implements IRequestHandler {
     }
   }
 
+  /**
+   * Start a background timer that refreshes the token before it expires.
+   * Default interval: 45 minutes (Azure AD tokens typically last 60-90 min).
+   */
+  public startProactiveRefresh(intervalMs: number = 45 * 60 * 1000): void {
+    this.stopProactiveRefresh();
+    this.refreshTimer = setInterval(async () => {
+      try {
+        this.token = undefined;
+        await this.ensureToken();
+        console.error(`[Auth] Proactive token refresh succeeded.`);
+      } catch (err) {
+        console.error(`[Auth] Proactive token refresh failed:`, err);
+      }
+    }, intervalMs);
+    // Don't keep the Node process alive just for this timer
+    if (this.refreshTimer && typeof this.refreshTimer === 'object' && 'unref' in this.refreshTimer) {
+      this.refreshTimer.unref();
+    }
+  }
+
+  /**
+   * Force-clear the cached token and acquire a fresh one.
+   * Used by the service-layer withAuthRetry() wrapper.
+   */
+  public async forceRefresh(): Promise<void> {
+    this.token = undefined;
+    await this.ensureToken();
+  }
+
+  public stopProactiveRefresh(): void {
+    if (this.refreshTimer) {
+      clearInterval(this.refreshTimer);
+      this.refreshTimer = undefined;
+    }
+  }
+
   public prepareRequest(options: VsoBaseInterfaces.IRequestOptions): void {
     if (this.authHandler) {
       this.authHandler.prepareRequest(options);
@@ -237,11 +278,10 @@ export class TokenCredentialAuthHandler implements IRequestHandler {
   public canHandleAuthentication(
     response: VsoBaseInterfaces.IHttpClientResponse
   ): boolean {
-    if (this.authHandler) {
-      return this.authHandler.canHandleAuthentication(response);
-    }
-    return response.message.statusCode === 401 &&
-           (response.message.statusMessage || "").toLowerCase().indexOf("non-authoritative") === -1;
+    // Don't delegate to inner BearerCredentialHandler — it always returns false.
+    // Handle 401/403 directly so the HttpClient invokes handleAuthentication() for retry.
+    const statusCode = response.message?.statusCode;
+    return statusCode === 401 || statusCode === 403;
   }
 
   public async handleAuthentication(
@@ -249,12 +289,17 @@ export class TokenCredentialAuthHandler implements IRequestHandler {
     requestInfo: VsoBaseInterfaces.IRequestInfo,
     objs: any
   ): Promise<VsoBaseInterfaces.IHttpClientResponse> {
+    // Force a fresh token (old one triggered 401/403)
+    this.token = undefined;
     await this.ensureToken();
-    return this.authHandler!.handleAuthentication(
-      httpClient,
-      requestInfo,
-      objs
-    );
+
+    // Apply fresh auth headers to the retried request
+    if (this.authHandler) {
+      this.authHandler.prepareRequest(requestInfo.options);
+    }
+
+    // Retry the original request with refreshed credentials
+    return httpClient.requestRaw(requestInfo, objs);
   }
 }
 

@@ -41,7 +41,7 @@ async function main() {
       });
     }
     // Make config available to error formatting for better error hints
-    setErrorContext({ orgUrl: azureDevOpsConfig.orgUrl, project: azureDevOpsConfig.project });
+    setErrorContext({ orgUrl: azureDevOpsConfig.orgUrl, project: azureDevOpsConfig.project, authType: azureDevOpsConfig.auth?.type });
 
     // Load allowed tools
     const allowedTools = getAllowedTools();

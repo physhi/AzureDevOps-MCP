@@ -13,6 +13,7 @@ import * as VsoBaseInterfaces from "azure-devops-node-api/interfaces/common/VsoB
 import {
   IRequestHandler,
 } from "azure-devops-node-api/interfaces/common/VsoBaseInterfaces";
+import { TokenCredentialAuthHandler } from "./EntraAuthHandler";
 
 export class AzureDevOpsService {
   protected connection: azdev.WebApi;
@@ -116,6 +117,29 @@ export class AzureDevOpsService {
    */
   protected async getWorkItemTrackingApi(): Promise<WorkItemTrackingApi> {
     return await this.connection.getWorkItemTrackingApi();
+  }
+
+  /**
+   * Defense-in-depth: retry an operation once after refreshing the auth token.
+   * Catches auth errors (401/403) at the service layer even if the HTTP-level
+   * retry in TokenCredentialAuthHandler didn't fire (e.g. SDK swallowed it).
+   */
+  protected async withAuthRetry<T>(operation: () => Promise<T>): Promise<T> {
+    try {
+      return await operation();
+    } catch (error: any) {
+      const statusCode = error?.statusCode || error?.status;
+      const message = (error?.message || '').toLowerCase();
+      const isAuthError = statusCode === 401 || statusCode === 403
+        || message.includes('unauthorized') || message.includes('authentication failed');
+
+      if (isAuthError && this.authHandler instanceof TokenCredentialAuthHandler) {
+        console.error(`[Auth] Service-layer auth retry: refreshing token...`);
+        await this.authHandler.forceRefresh();
+        return await operation();
+      }
+      throw error;
+    }
   }
 
   /**

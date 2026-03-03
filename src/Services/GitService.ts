@@ -769,13 +769,15 @@ export class GitService extends AzureDevOpsService {
         // 'all' doesn't need to be set
       }
       
-      const pullRequests = await gitApi.getPullRequests(
-        repositoryId,
-        searchCriteria,
-        this.config.project,
-        undefined, // maxCommentLength
-        params.skip || 0,
-        params.top || 50
+      const pullRequests = await this.withAuthRetry(() =>
+        gitApi.getPullRequests(
+          repositoryId,
+          searchCriteria,
+          this.config.project,
+          undefined, // maxCommentLength
+          params.skip || 0,
+          params.top || 50
+        )
       );
 
       // Note: Work item integration could be added here in the future
@@ -852,10 +854,8 @@ export class GitService extends AzureDevOpsService {
       // Resolve repository name/ID to actual repository ID
       const repositoryId = await this.resolveRepositoryId(params.repository);
 
-      const pullRequest = await gitApi.getPullRequest(
-        repositoryId,
-        params.pullRequestId,
-        this.config.project
+      const pullRequest = await this.withAuthRetry(() =>
+        gitApi.getPullRequest(repositoryId, params.pullRequestId, this.config.project)
       );
 
       // Create enhanced response with work items

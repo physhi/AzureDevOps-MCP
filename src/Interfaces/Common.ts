@@ -84,13 +84,13 @@ function detectGitRemoteInfo(): { orgUrl: string; project: string; repository: s
 }
 
 // Stored server config context for enriching error messages
-let _serverContext: { orgUrl?: string; project?: string } = {};
+let _serverContext: { orgUrl?: string; project?: string; authType?: string } = {};
 
 /**
  * Sets the server config context so error messages can reference configured values.
  * Call once during server startup.
  */
-export function setErrorContext(context: { orgUrl?: string; project?: string }): void {
+export function setErrorContext(context: { orgUrl?: string; project?: string; authType?: string }): void {
   _serverContext = context;
 }
 
@@ -103,8 +103,20 @@ export function formatErrorResponse(error: any): McpResponse {
   const errorMessage = error instanceof Error ? error.message : String(error);
   let md = `Error: ${errorMessage}`;
 
-  // Append git remote discovery hint for repo/project-not-found errors
   const lower = errorMessage.toLowerCase();
+
+  // Auth error hints
+  const statusCode = error?.statusCode || error?.status;
+  if (statusCode === 401 || statusCode === 403 || lower.includes('unauthorized') || lower.includes('authentication failed')) {
+    md += `\n\n**Authentication failed.** Your token may have expired.`;
+    if (_serverContext.authType === 'pat') {
+      md += ` Generate a new PAT and restart the server.`;
+    } else if (_serverContext.authType && ['entra', 'azcli', 'interactive'].includes(_serverContext.authType)) {
+      md += ` The server will attempt automatic token refresh. If this persists, restart the server.`;
+    }
+  }
+
+  // Append git remote discovery hint for repo/project-not-found errors
   if (
     lower.includes('not found in project') ||
     lower.includes('failed to resolve repository') ||

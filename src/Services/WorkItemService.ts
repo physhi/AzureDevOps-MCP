@@ -39,11 +39,9 @@ export class WorkItemService extends AzureDevOpsService {
       const witApi = await this.getWorkItemTrackingApi();
       
       // Execute the WIQL query
-      const queryResult = await witApi.queryByWiql({
-        query: wiqlQuery
-      }, {
-        project: this.config.project
-      });
+      const queryResult = await this.withAuthRetry(() =>
+        witApi.queryByWiql({ query: wiqlQuery }, { project: this.config.project })
+      );
       
       return queryResult;
     } catch (error) {
@@ -58,7 +56,9 @@ export class WorkItemService extends AzureDevOpsService {
   public async getWorkItemById(params: WorkItemByIdParams): Promise<any> {
     try {
       const witApi = await this.getWorkItemTrackingApi();
-      const workItem = await witApi.getWorkItem(params.id, undefined, undefined, WorkItemExpand.Relations, this.config.project);
+      const workItem = await this.withAuthRetry(() =>
+        witApi.getWorkItem(params.id, undefined, undefined, WorkItemExpand.Relations, this.config.project)
+      );
       
       // Transform to streamlined format for MCP tool consumption
       if (workItem && workItem.fields) {
