@@ -111,10 +111,11 @@ async function main() {
     allowedTools.has("getWorkItemById") && server.tool("getWorkItemById",
       "Get a specific work item by ID with summary and detailed view",
       {
-        id: zId().describe("Work item ID")
+        id: zId().describe("Work item ID"),
+        fullDescription: z.boolean().optional().default(false).describe("Return the full description without truncation")
       },
       async (params, extra) => {
-        const result = await workItemTools.getWorkItemById({ id: params.id });
+        const result = await workItemTools.getWorkItemById(params);
         return {
           content: result.content,
           rawData: result.rawData,

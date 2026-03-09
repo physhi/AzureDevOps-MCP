@@ -122,7 +122,7 @@ export class WorkItemTools {
   public async getWorkItemById(params: WorkItemByIdParams): Promise<McpResponse> {
     try {
       const workItem = await this.workItemService.getWorkItemWithEffortRollup(params);
-      return this.formatWorkItemResponse(workItem);
+      return this.formatWorkItemResponse(workItem, params.fullDescription);
     } catch (error) {
       console.error('Error in getWorkItemById tool:', error);
       return formatErrorResponse(error);
@@ -132,7 +132,7 @@ export class WorkItemTools {
   /**
    * Format work item response with optimized token usage
    */
-  private formatWorkItemResponse(workItem: any): McpResponse {
+  private formatWorkItemResponse(workItem: any, fullDescription?: boolean): McpResponse {
     if (!workItem) {
       return {
         content: [
@@ -147,22 +147,8 @@ export class WorkItemTools {
     // Helper function to parse and format description
     const formatDescription = (description: string): string => {
       if (!description) return 'No description provided';
-
-      // Remove HTML tags for basic cleanup
-      let cleanDesc = stripHtml(description);
-
-      // Look for acceptance criteria patterns
-      const acMatch = cleanDesc.match(/acceptance criteria:?\s*(.*?)(?:\n\n|\*\*|$)/i);
-      if (acMatch) {
-        const acText = acMatch[1];
-        // Look for AC patterns like AC1:, AC-1:, etc.
-        const acItems = acText.split(/AC[\s-]*\d+:?/i).filter(item => item.trim());
-        if (acItems.length > 1) {
-          return cleanDesc.substring(0, 200) + (cleanDesc.length > 200 ? '...' : '');
-        }
-      }
-
-      // Truncate if too long
+      const cleanDesc = stripHtml(description);
+      if (fullDescription) return cleanDesc;
       return cleanDesc.length > 300 ? cleanDesc.substring(0, 300) + '...' : cleanDesc;
     };
 

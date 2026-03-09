@@ -52,7 +52,26 @@ export function truncateText(text: string, maxLen: number = 50): string {
 
 export function stripHtml(html: string): string {
   if (!html) return '';
-  return html.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
+  return html
+    .replace(/<br\s*\/?>/gi, '\n')              // <br> → newline
+    .replace(/<\/p>/gi, '\n\n')                  // </p> → paragraph break
+    .replace(/<\/div>/gi, '\n')                  // </div> → newline
+    .replace(/<\/li>/gi, '\n')                   // </li> → newline
+    .replace(/<li[^>]*>/gi, '- ')                // <li> → markdown list item
+    .replace(/<\/h[1-6]>/gi, '\n\n')             // closing heading → paragraph break
+    .replace(/<h([1-6])[^>]*>/gi, (_, level) => '#'.repeat(Number(level)) + ' ') // <h1> → #
+    .replace(/<[^>]*>/g, '')                     // strip remaining tags
+    .replace(/&quot;/g, '"')
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&#39;/g, "'")
+    .replace(/&apos;/g, "'")
+    .replace(/&nbsp;/g, ' ')
+    .replace(/[ \t]+/g, ' ')                     // collapse horizontal whitespace only
+    .replace(/\n /g, '\n')                        // trim leading space after newlines
+    .replace(/\n{3,}/g, '\n\n')                  // collapse 3+ newlines to 2
+    .trim();
 }
 
 // ── Effort Formatting ────────────────────────────────────────────

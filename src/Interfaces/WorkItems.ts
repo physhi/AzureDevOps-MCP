@@ -3,6 +3,7 @@
  */
 export interface WorkItemByIdParams {
   id: number;
+  fullDescription?: boolean;
 }
 
 /**
