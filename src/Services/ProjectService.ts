@@ -2,6 +2,7 @@ import * as azdev from 'azure-devops-node-api';
 import { CoreApi } from 'azure-devops-node-api/CoreApi';
 import { WorkItemTrackingProcessApi } from 'azure-devops-node-api/WorkItemTrackingProcessApi';
 import { ProjectVisibility } from 'azure-devops-node-api/interfaces/CoreInterfaces';
+import { TreeStructureGroup } from 'azure-devops-node-api/interfaces/WorkItemTrackingInterfaces';
 import { AzureDevOpsConfig } from '../Interfaces/AzureDevOps';
 import { AzureDevOpsService } from './AzureDevOpsService';
 import {
@@ -112,20 +113,20 @@ export class ProjectService extends AzureDevOpsService {
   }
 
   /**
-   * Get areas
+   * Get areas using WIT classification nodes API
    */
   public async getAreas(params: GetAreasParams): Promise<any> {
     try {
-      const coreApi = await this.getCoreApi();
-      
-      // Use getProject as a workaround
-      const project = await coreApi.getProject(params.projectId);
-      
-      // Return project info as a workaround
-      return {
-        project,
-        message: "Direct classification node API not available, returning project info instead"
-      };
+      const witApi = await this.getWorkItemTrackingApi();
+      const node = await this.withAuthRetry(() =>
+        witApi.getClassificationNode(
+          params.projectId,
+          TreeStructureGroup.Areas,
+          params.path,
+          params.depth ?? 2
+        )
+      );
+      return node;
     } catch (error) {
       console.error(`Error getting areas for project ${params.projectId}:`, error);
       throw error;
@@ -133,20 +134,20 @@ export class ProjectService extends AzureDevOpsService {
   }
 
   /**
-   * Get iterations
+   * Get iterations using WIT classification nodes API
    */
   public async getIterations(params: GetIterationsParams): Promise<any> {
     try {
-      const coreApi = await this.getCoreApi();
-      
-      // Use getProject as a workaround
-      const project = await coreApi.getProject(params.projectId);
-      
-      // Return project info as a workaround
-      return {
-        project,
-        message: "Direct classification node API not available, returning project info instead"
-      };
+      const witApi = await this.getWorkItemTrackingApi();
+      const node = await this.withAuthRetry(() =>
+        witApi.getClassificationNode(
+          params.projectId,
+          TreeStructureGroup.Iterations,
+          params.path,
+          params.depth ?? 2
+        )
+      );
+      return node;
     } catch (error) {
       console.error(`Error getting iterations for project ${params.projectId}:`, error);
       throw error;
@@ -154,18 +155,20 @@ export class ProjectService extends AzureDevOpsService {
   }
 
   /**
-   * Create area
+   * Create area using WIT classification nodes API
    */
   public async createArea(params: CreateAreaParams): Promise<any> {
     try {
-      // Return a mock response as a workaround
-      return {
-        id: "mock-area-id",
-        name: params.name,
-        path: params.parentPath || "",
-        structureType: "area",
-        message: "Direct classification node creation API not available, returning mock data"
-      };
+      const witApi = await this.getWorkItemTrackingApi();
+      const node = await this.withAuthRetry(() =>
+        witApi.createOrUpdateClassificationNode(
+          { name: params.name },
+          params.projectId,
+          TreeStructureGroup.Areas,
+          params.parentPath
+        )
+      );
+      return node;
     } catch (error) {
       console.error(`Error creating area ${params.name}:`, error);
       throw error;
@@ -173,23 +176,26 @@ export class ProjectService extends AzureDevOpsService {
   }
 
   /**
-   * Create iteration
+   * Create iteration using WIT classification nodes API
    */
   public async createIteration(params: CreateIterationParams): Promise<any> {
     try {
-      const attributes: any = {};
-      if (params.startDate) attributes.startDate = params.startDate;
-      if (params.finishDate) attributes.finishDate = params.finishDate;
-      
-      // Return a mock response as a workaround
-      return {
-        id: "mock-iteration-id",
-        name: params.name,
-        path: params.parentPath || "",
-        structureType: "iteration",
-        attributes: Object.keys(attributes).length > 0 ? attributes : undefined,
-        message: "Direct classification node creation API not available, returning mock data"
-      };
+      const witApi = await this.getWorkItemTrackingApi();
+      const nodePayload: any = { name: params.name };
+      if (params.startDate || params.finishDate) {
+        nodePayload.attributes = {};
+        if (params.startDate) nodePayload.attributes.startDate = params.startDate;
+        if (params.finishDate) nodePayload.attributes.finishDate = params.finishDate;
+      }
+      const node = await this.withAuthRetry(() =>
+        witApi.createOrUpdateClassificationNode(
+          nodePayload,
+          params.projectId,
+          TreeStructureGroup.Iterations,
+          params.parentPath
+        )
+      );
+      return node;
     } catch (error) {
       console.error(`Error creating iteration ${params.name}:`, error);
       throw error;

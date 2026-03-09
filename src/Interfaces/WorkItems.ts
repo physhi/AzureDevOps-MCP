@@ -52,11 +52,22 @@ export interface UpdateWorkItemParams {
 }
 
 /**
+ * Interface for getting comments on a work item
+ */
+export interface GetWorkItemCommentsParams {
+  id: number;
+  top?: number;
+  order?: 'asc' | 'desc';
+  includeDeleted?: boolean;
+}
+
+/**
  * Interface for adding a comment to a work item
  */
 export interface AddWorkItemCommentParams {
   id: number;
   text: string;
+  format?: 'markdown' | 'html';
 }
 
 /**

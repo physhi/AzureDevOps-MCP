@@ -67,4 +67,13 @@ export interface GetSprintCapacityParams {
  */
 export interface GetTeamMembersParams {
   teamId?: string;
-} 
+}
+
+/**
+ * Interface for getting teams
+ */
+export interface GetTeamsParams {
+  filter?: string;
+  top?: number;
+  skip?: number;
+}

@@ -10,7 +10,8 @@ import {
   GetCurrentSprintParams,
   GetSprintWorkItemsParams,
   GetSprintCapacityParams,
-  GetTeamMembersParams
+  GetTeamMembersParams,
+  GetTeamsParams
 } from '../Interfaces/BoardsAndSprints';
 import getClassMethods from "../utils/getClassMethods";
 import {
@@ -332,18 +333,38 @@ export class BoardsSprintsTools {
   }
 
   /**
-   * Get all teams in the configured project
+   * Get teams in the configured project with pagination and optional name filter
    */
-  public async getTeams(): Promise<McpResponse> {
+  public async getTeams(params: GetTeamsParams = {}): Promise<McpResponse> {
     try {
-      const teams = await this.boardsSprintsService.getTeams();
-      const items = Array.isArray(teams) ? teams : [];
+      // When filtering, fetch all to filter client-side (API has no server-side filter)
+      const fetchTop = params.filter ? 500 : (params.top ?? 100);
+      const fetchSkip = params.filter ? undefined : params.skip;
+      const teams = await this.boardsSprintsService.getTeams(fetchTop, fetchSkip);
+      let items = Array.isArray(teams) ? teams : [];
 
-      if (items.length === 0) {
-        return formatMcpResponse(teams, `## Teams\n\nNo teams found.`);
+      // Client-side name filter (case-insensitive substring match)
+      if (params.filter) {
+        const pattern = params.filter.toLowerCase();
+        items = items.filter((t: any) => {
+          const name = (t.name || '').toLowerCase();
+          const desc = (t.description || '').toLowerCase();
+          return name.includes(pattern) || desc.includes(pattern);
+        });
+        // Apply skip/top to filtered results
+        if (params.skip) items = items.slice(params.skip);
+        if (params.top) items = items.slice(0, params.top);
       }
 
-      let md = `## Teams\n\n**${items.length} team${items.length !== 1 ? 's' : ''}**\n\n`;
+      if (items.length === 0) {
+        const filterMsg = params.filter ? ` matching "${params.filter}"` : '';
+        return formatMcpResponse(teams, `## Teams\n\nNo teams found${filterMsg}.`);
+      }
+
+      let md = `## Teams\n\n**${items.length} team${items.length !== 1 ? 's' : ''}**`;
+      if (params.filter) md += ` matching "${params.filter}"`;
+      if (params.skip) md += ` (skip: ${params.skip})`;
+      md += `\n\n`;
 
       const rows = items.map((t: any) => [
         t.name || 'N/A',
@@ -352,7 +373,13 @@ export class BoardsSprintsTools {
       ]);
       md += markdownTable(['Name', 'ID', 'Description'], rows);
 
-      return formatMcpResponse(teams, md, false, true);
+      if (params.filter && teams.length >= 500) {
+        md += `\n⚠️ Search scanned the first 500 teams. Results may be incomplete for large organisations.`;
+      } else if (!params.filter && items.length >= (params.top ?? 100)) {
+        md += `\n💡 More teams may exist. Use \`skip: ${(params.skip || 0) + items.length}\` to see the next page, or use \`filter\` to search by name.`;
+      }
+
+      return formatMcpResponse(items, md, false, true);
     } catch (error) {
       console.error('Error in getTeams tool:', error);
       return formatErrorResponse(error);

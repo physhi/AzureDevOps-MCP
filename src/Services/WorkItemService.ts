@@ -1,6 +1,6 @@
 import * as azdev from 'azure-devops-node-api';
 import { WorkItemTrackingApi } from 'azure-devops-node-api/WorkItemTrackingApi';
-import { WorkItemExpand } from 'azure-devops-node-api/interfaces/WorkItemTrackingInterfaces';
+import { WorkItemExpand, CommentExpandOptions, CommentSortOrder } from 'azure-devops-node-api/interfaces/WorkItemTrackingInterfaces';
 import {
   JsonPatchOperation,
   Operation
@@ -15,6 +15,7 @@ import {
   CreateWorkItemParams,
   UpdateWorkItemParams,
   AddWorkItemCommentParams,
+  GetWorkItemCommentsParams,
   UpdateWorkItemStateParams,
   AssignWorkItemParams,
   CreateLinkServiceParams,
@@ -544,17 +545,56 @@ export class WorkItemService extends AzureDevOpsService {
   }
 
   /**
-   * Add a comment to a work item
+   * Get comments on a work item
+   */
+  public async getWorkItemComments(params: GetWorkItemCommentsParams): Promise<any> {
+    try {
+      const witApi = await this.getWorkItemTrackingApi();
+      const sortOrder = params.order === 'asc' ? CommentSortOrder.Asc : CommentSortOrder.Desc;
+
+      const commentList = await this.withAuthRetry(() =>
+        witApi.getComments(
+          this.config.project,
+          params.id,
+          params.top,
+          undefined, // continuationToken
+          params.includeDeleted ?? false,
+          CommentExpandOptions.None,
+          sortOrder
+        )
+      );
+
+      return commentList;
+    } catch (error) {
+      console.error(`Error getting comments for work item ${params.id}:`, error);
+      throw error;
+    }
+  }
+
+  /**
+   * Add a comment to a work item.
+   * Uses the REST client directly to pass the `format` query parameter
+   * (0 = markdown, 1 = html) which the SDK's addComment() doesn't expose.
    */
   public async addWorkItemComment(params: AddWorkItemCommentParams): Promise<any> {
     try {
-      const witApi = await this.getWorkItemTrackingApi();
-      
-      const comment = await witApi.addComment({
-        text: params.text
-      }, this.config.project, params.id);
-      
-      return comment;
+      const format = params.format === 'html' ? 1 : 0; // default to markdown (0)
+
+      // Sanitise inputs before URL interpolation (SDK calls handle this internally, but this is a raw REST call)
+      const id = Math.floor(Number(params.id));
+      if (!Number.isSafeInteger(id) || id <= 0) throw new Error(`Invalid work item ID: ${params.id}`);
+      const baseUrl = this.connection.serverUrl.replace(/\/+$/, '');
+      const project = encodeURIComponent(this.config.project);
+      const url = `${baseUrl}/${project}/_apis/wit/workItems/${id}/comments?format=${format}&api-version=7.2-preview.4`;
+
+      const response = await this.withAuthRetry(() =>
+        this.connection.rest.create<any>(url, { text: params.text })
+      );
+
+      if (!response.result) {
+        throw new Error(`Azure DevOps API returned no data when creating comment on work item ${params.id}`);
+      }
+      return response.result;
     } catch (error) {
       console.error(`Error adding comment to work item ${params.id}:`, error);
       throw error;

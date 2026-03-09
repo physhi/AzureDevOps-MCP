@@ -10,6 +10,7 @@ import {
   CreateWorkItemParams,
   UpdateWorkItemParams,
   AddWorkItemCommentParams,
+  GetWorkItemCommentsParams,
   UpdateWorkItemStateParams,
   AssignWorkItemParams,
   CreateLinkParams,
@@ -553,13 +554,73 @@ export class WorkItemTools {
   }
 
   /**
+   * Get comments on a work item
+   */
+  public async getWorkItemComments(params: GetWorkItemCommentsParams): Promise<McpResponse> {
+    try {
+      const commentList = await this.workItemService.getWorkItemComments(params);
+      if (!commentList || !Array.isArray(commentList.comments)) {
+        throw new Error(`Azure DevOps API returned unexpected response for work item ${params.id} comments`);
+      }
+      const comments = commentList.comments;
+
+      if (comments.length === 0) {
+        return formatMcpResponse(commentList, `## Work Item #${params.id} - Comments\n\nNo comments found.`);
+      }
+
+      let md = `## Work Item #${params.id} - Comments\n\n`;
+      md += `**${comments.length} comment${comments.length !== 1 ? 's' : ''}**\n\n`;
+
+      for (const comment of comments) {
+        const author = comment.createdBy?.displayName || 'Unknown';
+        const date = comment.createdDate ? formatFullDate(comment.createdDate) : 'Unknown date';
+        const relDate = comment.createdDate ? formatRelativeDate(comment.createdDate) : '';
+
+        md += `### Comment #${comment.id}\n`;
+        md += `**${author}** | ${date} (${relDate})\n\n`;
+        // Prefer raw text (markdown) over renderedText (HTML)
+        md += `${comment.text || stripHtml(comment.renderedText || '') || '(empty)'}\n\n`;
+        md += `---\n\n`;
+      }
+
+      const structuredData = {
+        workItemId: params.id,
+        totalCount: commentList?.totalCount ?? comments.length,
+        count: comments.length,
+        comments: comments.map((c: any) => ({
+          id: c.id,
+          text: c.text,
+          renderedText: c.renderedText,
+          createdBy: c.createdBy ? {
+            displayName: c.createdBy.displayName,
+            uniqueName: c.createdBy.uniqueName,
+          } : null,
+          createdDate: c.createdDate,
+          modifiedBy: c.modifiedBy ? {
+            displayName: c.modifiedBy.displayName,
+            uniqueName: c.modifiedBy.uniqueName,
+          } : null,
+          modifiedDate: c.modifiedDate,
+          format: c.format,
+        })),
+      };
+
+      return formatMcpResponse(structuredData, md, false, true);
+    } catch (error) {
+      console.error('Error in getWorkItemComments tool:', error);
+      return formatErrorResponse(error);
+    }
+  }
+
+  /**
    * Add a comment to a work item
    */
   public async addWorkItemComment(params: AddWorkItemCommentParams): Promise<McpResponse> {
     try {
       const comment = await this.workItemService.addWorkItemComment(params);
+      const formatUsed = params.format || 'markdown';
 
-      const md = `## ✅ Comment Added\n\n**Work Item:** #${params.id}\n\n> ${truncateText(params.text, 100)}`;
+      const md = `## ✅ Comment Added\n\n**Work Item:** #${params.id} | **Format:** ${formatUsed}\n\n> ${truncateText(params.text, 100)}`;
 
       return formatMcpResponse(comment, md, false, true);
     } catch (error) {

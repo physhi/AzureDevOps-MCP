@@ -32,7 +32,9 @@ export interface CreateProjectParams {
  */
 export interface GetAreasParams {
   projectId: string;
+  path?: string;
   depth?: number;
+  filter?: string;
 }
 
 /**
@@ -40,7 +42,8 @@ export interface GetAreasParams {
  */
 export interface GetIterationsParams {
   projectId: string;
-  includeDeleted?: boolean;
+  path?: string;
+  depth?: number;
 }
 
 /**

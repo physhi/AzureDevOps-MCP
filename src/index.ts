@@ -16,7 +16,35 @@ import { z } from 'zod';
 import { setErrorContext } from './Interfaces/Common';
 
 /** Wrap a value so string-encoded JSON arrays are auto-parsed (some MCP clients send arrays as strings). */
-const coerceArray = (val: unknown) => typeof val === 'string' ? JSON.parse(val) : val;
+const coerceArray = (val: unknown) => {
+  if (typeof val !== 'string') return val;
+  try { return JSON.parse(val); }
+  catch { throw new Error(`Expected a JSON array (e.g. [1, 2, 3]) but received: "${val.length > 50 ? val.slice(0, 50) + '...' : val}"`); }
+};
+
+/**
+ * Strip common prefixes/symbols from ID values so LLMs can pass
+ * "123", "#123", "WI#123", "PR 456", "BUILD#789", etc.
+ * Returns a number or NaN (which z.number() will reject with a clear error).
+ */
+const coerceId = (val: unknown): number => {
+  if (typeof val === 'number') return val;
+  if (typeof val !== 'string') return NaN;
+  // Strip known prefixes: WI#, PR#, BUILD#, leading #, or any "Word " / "Word#" prefix
+  const cleaned = val.trim().replace(/^(?:[A-Za-z]+[#\s])?#?/, '');
+  if (cleaned === '') return NaN;
+  const num = Number(cleaned);
+  return Number.isSafeInteger(num) && num > 0 ? num : NaN;
+};
+
+/** Zod schema for an ID parameter — accepts numbers and common LLM string formats like "#123", "WI#123", "PR 456" */
+const zId = () => z.union([z.number(), z.string()]).transform(coerceId).pipe(z.number().int().min(1));
+
+/** Zod schema for an optional ID parameter */
+const zIdOptional = () => z.union([z.number(), z.string()]).transform(coerceId).pipe(z.number().int().min(1)).optional();
+
+/** Zod schema for an array of IDs */
+const zIdArray = () => z.preprocess(coerceArray, z.array(z.union([z.number(), z.string()]).transform(coerceId).pipe(z.number().int().min(1))));
 import { TokenCredentialAuthHandler } from './Services/EntraAuthHandler';
 
 async function main() {
@@ -83,7 +111,7 @@ async function main() {
     allowedTools.has("getWorkItemById") && server.tool("getWorkItemById",
       "Get a specific work item by ID with summary and detailed view",
       {
-        id: z.coerce.number().describe("Work item ID")
+        id: zId().describe("Work item ID")
       },
       async (params, extra) => {
         const result = await workItemTools.getWorkItemById({ id: params.id });
@@ -171,7 +199,7 @@ async function main() {
     allowedTools.has("updateWorkItem") && server.tool("updateWorkItem",
       "Update an existing work item",
       {
-        id: z.coerce.number().describe("ID of the work item to update"),
+        id: zId().describe("ID of the work item to update"),
         fields: z.record(z.any()).describe("Fields to update on the work item")
       },
       async (params, extra) => {
@@ -185,11 +213,31 @@ async function main() {
       }
     );
     
-    allowedTools.has("addWorkItemComment") && server.tool("addWorkItemComment",
-      "Add a comment to a work item",
+    allowedTools.has("getWorkItemComments") && server.tool("getWorkItemComments",
+      "Get comments on a work item",
       {
-        id: z.coerce.number().describe("ID of the work item"),
-        text: z.string().describe("Comment text")
+        id: zId().describe("ID of the work item"),
+        top: z.coerce.number().optional().describe("Maximum number of comments to return"),
+        order: z.enum(['asc', 'desc']).optional().default('desc').describe("Sort order: 'asc' (oldest first) or 'desc' (newest first)"),
+        includeDeleted: z.boolean().optional().describe("Include deleted comments")
+      },
+      async (params, extra) => {
+        const result = await workItemTools.getWorkItemComments(params);
+        return {
+          content: result.content,
+          rawData: result.rawData,
+          isError: result.isError,
+          structuredContent: result.structuredContent
+        };
+      }
+    );
+
+    allowedTools.has("addWorkItemComment") && server.tool("addWorkItemComment",
+      "Add a comment to a work item. Supports markdown formatting by default.",
+      {
+        id: zId().describe("ID of the work item"),
+        text: z.string().describe("Comment text (supports markdown when format is 'markdown')"),
+        format: z.enum(['markdown', 'html']).optional().default('markdown').describe("Comment format: 'markdown' (default) or 'html'")
       },
       async (params, extra) => {
         const result = await workItemTools.addWorkItemComment(params);
@@ -205,7 +253,7 @@ async function main() {
     allowedTools.has("updateWorkItemState") && server.tool("updateWorkItemState", 
       "Update the state of a work item",
       {
-        id: z.coerce.number().describe("ID of the work item"),
+        id: zId().describe("ID of the work item"),
         state: z.string().describe("New state for the work item"),
         comment: z.string().optional().describe("Comment explaining the state change")
       },
@@ -222,7 +270,7 @@ async function main() {
     allowedTools.has("assignWorkItem") && server.tool("assignWorkItem", 
       "Assign a work item to a user",
       {
-        id: z.coerce.number().describe("ID of the work item"),
+        id: zId().describe("ID of the work item"),
         assignedTo: z.string().describe("User to assign the work item to")
       },
       async (params, extra) => {
@@ -241,7 +289,7 @@ async function main() {
       "BUILD#789 (build), BRANCH#main (branch), COMMIT#abc123 (commit). " +
       "Plain numbers default to work item.",
       {
-        sourceId: z.coerce.number().describe("ID of the source work item"),
+        sourceId: zId().describe("ID of the source work item"),
         targetId: z.string().describe("Target with prefix: WI#123, PR#456, BUILD#789, BRANCH#main, COMMIT#abc, or plain number for work item"),
         linkType: z.string().describe("Link type (e.g., System.LinkTypes.Related). For artifact prefixes, this is still required but the actual rel type is auto-set to ArtifactLink."),
         comment: z.string().optional().describe("Comment explaining the link"),
@@ -273,7 +321,7 @@ async function main() {
             additionalFields: z.record(z.any()).optional().describe("Additional fields to set on the work item")
           }),
           z.object({
-            id: z.coerce.number().describe("ID of work item to update"),
+            id: zId().describe("ID of work item to update"),
             fields: z.record(z.any()).describe("Fields to update on the work item")
           })
         ])).min(1).describe("Array of work items to create or update")
@@ -291,10 +339,7 @@ async function main() {
     allowedTools.has("getWorkItemsBatch") && server.tool("getWorkItemsBatch",
       "Get multiple work items by their IDs in a single efficient call",
       {
-        ids: z.preprocess(
-          coerceArray,
-          z.array(z.coerce.number())
-        ).describe("Array of work item IDs to retrieve"),
+        ids: zIdArray().describe("Array of work item IDs to retrieve"),
         fields: z.preprocess(
           coerceArray,
           z.array(z.string()).optional()
@@ -309,7 +354,7 @@ async function main() {
     allowedTools.has("getWorkItemRevisions") && server.tool("getWorkItemRevisions",
       "Get revision/change history for a work item showing all field changes over time",
       {
-        id: z.coerce.number().describe("Work item ID"),
+        id: zId().describe("Work item ID"),
         top: z.coerce.number().optional().describe("Maximum number of revisions to return"),
         skip: z.coerce.number().optional().describe("Number of revisions to skip"),
       },
@@ -333,7 +378,7 @@ async function main() {
     allowedTools.has("addChildWorkItem") && server.tool("addChildWorkItem",
       "Create a new work item and link it as a child of an existing parent work item",
       {
-        parentId: z.coerce.number().describe("Parent work item ID"),
+        parentId: zId().describe("Parent work item ID"),
         workItemType: z.string().describe("Type of child work item (e.g., 'Task', 'Bug')"),
         title: z.string().describe("Title of the child work item"),
         description: z.string().optional().describe("Description"),
@@ -352,7 +397,7 @@ async function main() {
     allowedTools.has("unlinkWorkItem") && server.tool("unlinkWorkItem",
       "Remove a link/relation from a work item by its relation index. Use getWorkItemById first to see the relations and their indices.",
       {
-        id: z.coerce.number().describe("Work item ID"),
+        id: zId().describe("Work item ID"),
         relationIndex: z.coerce.number().describe("Index of the relation to remove (0-based, from the relations array)"),
       },
       async (params) => {
@@ -414,7 +459,7 @@ async function main() {
       {
         teamId: z.string().optional().describe("Team ID (uses default team if not specified)"),
         boardId: z.string().describe("ID of the board"),
-        workItemId: z.coerce.number().describe("ID of the work item to move"),
+        workItemId: zId().describe("ID of the work item to move"),
         columnId: z.string().describe("ID of the column to move to"),
         position: z.coerce.number().optional().describe("Position within the column")
       },
@@ -506,10 +551,14 @@ async function main() {
     );
 
     allowedTools.has("getTeams") && server.tool("getTeams",
-      "Get all teams in the configured project",
-      {},
-      async (_params, extra) => {
-        const result = await boardsSprintsTools.getTeams();
+      "Get teams in the configured project. Use 'filter' to search by name.",
+      {
+        filter: z.string().optional().describe("Filter teams by name (case-insensitive substring match)"),
+        top: z.coerce.number().optional().describe("Maximum number of teams to return (default: 100)"),
+        skip: z.coerce.number().optional().describe("Number of teams to skip for pagination")
+      },
+      async (params, extra) => {
+        const result = await boardsSprintsTools.getTeams(params);
         return {
           content: result.content,
           rawData: result.rawData,
@@ -572,11 +621,13 @@ async function main() {
       }
     );
     
-    allowedTools.has("getAreas") && server.tool("getAreas", 
-      "Get areas for a project",
+    allowedTools.has("getAreas") && server.tool("getAreas",
+      "Get area paths for a project. Use 'path' to drill into a subtree, or 'filter' to search by name.",
       {
-        projectId: z.string().describe("ID of the project"),
-        depth: z.coerce.number().optional().describe("Maximum depth of the area hierarchy")
+        projectId: z.string().describe("ID or name of the project"),
+        path: z.string().optional().describe("Area path to start from (e.g., 'TeamA\\SubArea'). Omit for root."),
+        depth: z.coerce.number().optional().describe("Maximum depth of children to return (default: 2)"),
+        filter: z.string().optional().describe("Filter areas by name (case-insensitive substring match)")
       },
       async (params, extra) => {
         const result = await projectTools.getAreas(params);
@@ -588,11 +639,12 @@ async function main() {
       }
     );
     
-    allowedTools.has("getIterations") && server.tool("getIterations", 
-      "Get iterations for a project",
+    allowedTools.has("getIterations") && server.tool("getIterations",
+      "Get iterations for a project. Use 'path' to drill into a subtree instead of fetching the entire hierarchy.",
       {
-        projectId: z.string().describe("ID of the project"),
-        includeDeleted: z.boolean().optional().describe("Include deleted iterations")
+        projectId: z.string().describe("ID or name of the project"),
+        path: z.string().optional().describe("Iteration path to start from (e.g., 'Sprint 1'). Omit for root."),
+        depth: z.coerce.number().optional().describe("Maximum depth of children to return (default: 2)")
       },
       async (params, extra) => {
         const result = await projectTools.getIterations(params);
@@ -886,7 +938,7 @@ async function main() {
       "Supports both repository names and IDs.",
       {
         repository: z.string().describe("The repository name (e.g., 'MyProject') or ID (GUID) containing the pull request. Repository names are case-insensitive."),
-        pullRequestId: z.coerce.number().describe("The numeric ID of the pull request to retrieve. This is the PR number shown in the Azure DevOps UI (e.g., PR #123)."),
+        pullRequestId: zId().describe("The numeric ID of the pull request to retrieve. This is the PR number shown in the Azure DevOps UI (e.g., PR #123)."),
         include: z.array(z.enum(['policies', 'description', 'reviewers', 'workItems', 'completionOptions', 'files'])).optional().describe("Sections to return in full detail. When omitted, returns compact overview with all sections truncated. Specify sections you need full data for.")
       },
       async (params, extra) => {
@@ -903,8 +955,8 @@ async function main() {
       "Retrieve all comment threads and associated comments for a pull request. Returns a summary and organized list of threads including code review comments (with file/line context) and general discussions. Optionally filter by thread status (e.g., only 'active' unresolved threads), author name, specific thread ID, or use pagination. Supports both repository names and IDs.",
       {
         repository: z.string().describe("The repository name (e.g., 'MyProject') or ID (GUID) containing the pull request. Repository names are case-insensitive."),
-        pullRequestId: z.coerce.number().describe("The numeric ID of the pull request to retrieve comments from. This is the PR number shown in the Azure DevOps UI."),
-        threadId: z.coerce.number().optional().describe("Optional ID of a specific comment thread to retrieve. If provided, only returns the specified thread rather than all threads."),
+        pullRequestId: zId().describe("The numeric ID of the pull request to retrieve comments from. This is the PR number shown in the Azure DevOps UI."),
+        threadId: zIdOptional().describe("Optional ID of a specific comment thread to retrieve. If provided, only returns the specified thread rather than all threads."),
         status: z.enum(['active', 'fixed', 'wontFix', 'closed', 'byDesign', 'pending']).optional().describe("Filter threads by status. Use 'active' to see only unresolved threads, 'fixed' for resolved ones, etc."),
         authorName: z.string().optional().describe("Filter threads by author display name or email (case-insensitive partial match). Only threads where the root comment was authored by a matching user are returned."),
         top: z.coerce.number().optional().describe("Maximum number of comment threads to return in the response. Use this for pagination in PRs with many comments."),
@@ -925,7 +977,7 @@ async function main() {
       "Cast an 'Approve' vote on a pull request on behalf of the current authenticated user. This marks the PR as approved by the user and contributes toward satisfying approval requirements defined in branch policies. Equivalent to clicking 'Approve' in the Azure DevOps UI. Supports both repository names and IDs.",
       {
         repository: z.string().describe("The repository name (e.g., 'MyProject') or ID (GUID) containing the pull request. Repository names are case-insensitive."),
-        pullRequestId: z.coerce.number().describe("The numeric ID of the pull request to approve. This is the PR number shown in the Azure DevOps UI (e.g., PR #123).")
+        pullRequestId: zId().describe("The numeric ID of the pull request to approve. This is the PR number shown in the Azure DevOps UI (e.g., PR #123).")
       },
       async (params, extra) => {
         const result = await gitTools.approvePullRequest(params);
@@ -941,7 +993,7 @@ async function main() {
       "Complete a pull request by merging the source branch changes into the target branch. This operation requires that all required reviewers have approved the PR and all branch policies are satisfied. Supports different merge strategies (squash, rebase, etc.) and allows adding a custom commit message. Supports both repository names and IDs.",
       {
         repository: z.string().describe("The repository name (e.g., 'MyProject') or ID (GUID) containing the pull request. Repository names are case-insensitive."),
-        pullRequestId: z.coerce.number().describe("The numeric ID of the pull request to merge. This is the PR number shown in the Azure DevOps UI (e.g., PR #123)."),
+        pullRequestId: zId().describe("The numeric ID of the pull request to merge. This is the PR number shown in the Azure DevOps UI (e.g., PR #123)."),
         mergeStrategy: z.enum(['noFastForward', 'rebase', 'rebaseMerge', 'squash']).optional().describe("The strategy to use when merging changes: 'noFastForward' creates a merge commit, 'rebase' updates the source branch commits onto the target branch, 'rebaseMerge' combines rebase with a merge commit, 'squash' combines all changes into a single commit."),
         comment: z.string().optional().describe("Optional comment to include in the merge commit message. Use this to provide additional context about the merge beyond the default message.")
       },
@@ -960,7 +1012,7 @@ async function main() {
       "Add an inline code comment anchored to a SPECIFIC LINE of code in a file. The comment appears directly on that line in the Files tab. WHEN TO USE: Point out specific code issues, suggest improvements to a particular line, or ask questions about specific implementation details. EXAMPLES: 'This variable should be null-checked here', 'Consider using async/await on line 45', 'Why is this hardcoded?'. The system automatically retrieves the correct change tracking ID from the PR diff.",
       {
         repository: z.string().describe("The repository name (e.g., 'MyProject') or ID (GUID) containing the pull request. Repository names are case-insensitive."),
-        pullRequestId: z.coerce.number().describe("The numeric ID of the pull request where the comment will be added. This is the PR number shown in the Azure DevOps UI."),
+        pullRequestId: zId().describe("The numeric ID of the pull request where the comment will be added. This is the PR number shown in the Azure DevOps UI."),
         comment: z.string().describe("The text content of the comment to add. Can include markdown formatting. Should be specific to the line of code being commented on."),
         position: z.object({
           line: z.coerce.number().describe("The 1-based line number in the file where the comment starts. Must be a line visible in the PR diff (added, removed, or context line)."),
@@ -984,7 +1036,7 @@ async function main() {
       "Add a comment about an ENTIRE FILE (not a specific line). The comment appears at the file level in the Files tab. WHEN TO USE: Discuss overall file structure, architecture decisions, naming conventions, or when feedback applies to the whole file. EXAMPLES: 'This file should be split into smaller modules', 'Consider moving this to a different namespace', 'Great refactoring of this entire service!', 'This file needs unit tests'.",
       {
         repository: z.string().describe("The repository name (e.g., 'MyProject') or ID (GUID) containing the pull request. Repository names are case-insensitive."),
-        pullRequestId: z.coerce.number().describe("The numeric ID of the pull request where the comment will be added. This is the PR number shown in the Azure DevOps UI."),
+        pullRequestId: zId().describe("The numeric ID of the pull request where the comment will be added. This is the PR number shown in the Azure DevOps UI."),
         path: z.string().describe("The full path to the file within the repository that the comment relates to. Must be a file changed in the PR (e.g., '/src/Models/User.cs')."),
         comment: z.string().describe("The text content of the comment about the entire file. Can include markdown formatting. Should address file-level concerns, not specific lines.")
       },
@@ -1002,7 +1054,7 @@ async function main() {
       "Add a GENERAL comment about the entire pull request (not tied to any file or code). Appears in the Overview/Conversation tab. WHEN TO USE: Provide overall feedback, discuss architecture, approve/reject the PR, ask general questions, or comment on the PR description. EXAMPLES: 'This feature looks great! LGTM after CI passes', 'Can you add integration tests for this feature?', 'What's the performance impact of these changes?', 'Please update the documentation before merging'.",
       {
         repository: z.string().describe("The repository name (e.g., 'MyProject') or ID (GUID) containing the pull request. Repository names are case-insensitive."),
-        pullRequestId: z.coerce.number().describe("The numeric ID of the pull request where the comment will be added. This is the PR number shown in the Azure DevOps UI."),
+        pullRequestId: zId().describe("The numeric ID of the pull request where the comment will be added. This is the PR number shown in the Azure DevOps UI."),
         comment: z.string().describe("The text content of the general comment about the PR. Can include markdown formatting for rich text, code blocks, links, etc. Should address PR-level concerns, not specific files or lines.")
       },
       async (params, extra) => {
@@ -1020,7 +1072,7 @@ async function main() {
       "Retrieve detailed file diff information for a specific file changed within a pull request. Returns change metadata including change type (add, edit, delete), before/after content identifiers, and file path information. Optionally filter to a specific file path.",
       {
         repository: z.string().describe("The repository name (e.g., 'MyProject') or ID (GUID) containing the pull request. Repository names are case-insensitive."),
-        pullRequestId: z.coerce.number().describe("The numeric ID of the pull request to examine. This is the PR number shown in the Azure DevOps UI."),
+        pullRequestId: zId().describe("The numeric ID of the pull request to examine. This is the PR number shown in the Azure DevOps UI."),
         path: z.string().optional().describe("Optional path to a specific file to return changes for. If omitted, changes for all files will be returned but filtered to match this specific path.")
       },
       async (params, extra) => {
@@ -1037,7 +1089,7 @@ async function main() {
       "Get statistical summary of changes in a pull request, including total count of files changed and breakdowns by change type (added, modified, deleted). Useful for understanding the scope of changes in a PR at a glance.",
       {
         repository: z.string().describe("The repository name (e.g., 'MyProject') or ID (GUID) containing the pull request. Repository names are case-insensitive."),
-        pullRequestId: z.coerce.number().describe("The numeric ID of the pull request to analyze. This is the PR number shown in the Azure DevOps UI.")
+        pullRequestId: zId().describe("The numeric ID of the pull request to analyze. This is the PR number shown in the Azure DevOps UI.")
       },
       async (params, extra) => {
         const result = await gitTools.getPullRequestChangesCount(params);
@@ -1053,7 +1105,7 @@ async function main() {
       "Retrieve a comprehensive list of all file changes in a pull request with pagination support. Returns a summary and table of changed files with change types. Use pagination parameters (top/skip) to handle large PRs with many file changes. This does NOT include diff content - use getPullRequestFileChanges for detailed diffs.",
       {
         repository: z.string().describe("The repository name (e.g., 'MyProject') or ID (GUID) containing the pull request. Repository names are case-insensitive."),
-        pullRequestId: z.coerce.number().describe("The numeric ID of the pull request to retrieve changes for. This is the PR number shown in the Azure DevOps UI."),
+        pullRequestId: zId().describe("The numeric ID of the pull request to retrieve changes for. This is the PR number shown in the Azure DevOps UI."),
         top: z.coerce.number().optional().describe("Maximum number of change entries to return in a single request. Use this for pagination to avoid large response payloads."),
         skip: z.coerce.number().optional().describe("Number of change entries to skip before starting to return results. Use with 'top' for implementing pagination.")
       },
@@ -1072,7 +1124,7 @@ async function main() {
       "Update pull request properties (title, description, status, auto-complete, draft mode, target branch)",
       {
         repository: z.string().describe("Repository name or ID"),
-        pullRequestId: z.coerce.number().describe("Pull request ID"),
+        pullRequestId: zId().describe("Pull request ID"),
         title: z.string().optional().describe("New title for the PR"),
         description: z.string().optional().describe("New description for the PR"),
         status: z.enum(['active', 'abandoned', 'completed']).optional().describe("New status"),
@@ -1092,7 +1144,7 @@ async function main() {
       "Add or remove reviewers on an existing pull request",
       {
         repository: z.string().describe("Repository name or ID"),
-        pullRequestId: z.coerce.number().describe("Pull request ID"),
+        pullRequestId: zId().describe("Pull request ID"),
         reviewersToAdd: z.array(z.string()).optional().describe("User IDs or email addresses to add as reviewers"),
         reviewersToRemove: z.array(z.string()).optional().describe("User IDs or email addresses to remove from reviewers"),
         makeRequired: z.boolean().optional().describe("Make added reviewers required (default false)"),
@@ -1107,8 +1159,8 @@ async function main() {
       "Reply to an existing comment thread on a pull request",
       {
         repository: z.string().describe("Repository name or ID"),
-        pullRequestId: z.coerce.number().describe("Pull request ID"),
-        threadId: z.coerce.number().describe("Thread ID to reply to"),
+        pullRequestId: zId().describe("Pull request ID"),
+        threadId: zId().describe("Thread ID to reply to"),
         comment: z.string().describe("Reply text content (supports markdown)"),
       },
       async (params) => {
@@ -1121,8 +1173,8 @@ async function main() {
       "Update a comment thread's status (resolve, reactivate, close, etc.)",
       {
         repository: z.string().describe("Repository name or ID"),
-        pullRequestId: z.coerce.number().describe("Pull request ID"),
-        threadId: z.coerce.number().describe("Thread ID to update"),
+        pullRequestId: zId().describe("Pull request ID"),
+        threadId: zId().describe("Thread ID to update"),
         status: z.enum(['active', 'byDesign', 'closed', 'fixed', 'pending', 'unknown', 'wontFix']).describe("New thread status"),
       },
       async (params) => {
@@ -1148,8 +1200,8 @@ async function main() {
     allowedTools.has("runAutomatedTests") && server.tool("runAutomatedTests",
       "Execute automated test suites",
       {
-        testSuiteId: z.coerce.number().optional().describe("ID of the test suite to run"),
-        testPlanId: z.coerce.number().optional().describe("ID of the test plan to run"),
+        testSuiteId: zIdOptional().describe("ID of the test suite to run"),
+        testPlanId: zIdOptional().describe("ID of the test plan to run"),
         testEnvironment: z.string().optional().describe("Environment to run tests in"),
         parallelExecution: z.boolean().optional().describe("Whether to run tests in parallel")
       },
@@ -1166,7 +1218,7 @@ async function main() {
     allowedTools.has("getTestAutomationStatus") && server.tool("getTestAutomationStatus", 
       "Check status of automated test execution",
       {
-        testRunId: z.coerce.number().describe("ID of the test run to check status for")
+        testRunId: zId().describe("ID of the test run to check status for")
       },
       async (params, extra) => {
         const result = await testingCapabilitiesTools.getTestAutomationStatus(params);
@@ -1232,8 +1284,8 @@ async function main() {
     allowedTools.has("getTestFlakiness") && server.tool("getTestFlakiness", 
       "Analyze and report on test flakiness",
       {
-        testId: z.coerce.number().optional().describe("ID of a specific test to analyze"),
-        testRunIds: z.array(z.coerce.number()).optional().describe("Specific test runs to analyze"),
+        testId: zIdOptional().describe("ID of a specific test to analyze"),
+        testRunIds: zIdArray().optional().describe("Specific test runs to analyze"),
         timeRange: z.string().optional().describe("Time range for analysis (e.g., '30d')")
       },
       async (params, extra) => {
@@ -1265,7 +1317,7 @@ async function main() {
     allowedTools.has("runTestImpactAnalysis") && server.tool("runTestImpactAnalysis", 
       "Determine which tests to run based on code changes",
       {
-        buildId: z.coerce.number().describe("ID of the build to analyze"),
+        buildId: zId().describe("ID of the build to analyze"),
         changedFiles: z.array(z.string()).optional().describe("List of changed files")
       },
       async (params, extra) => {
@@ -1297,7 +1349,7 @@ async function main() {
     allowedTools.has("runTestOptimization") && server.tool("runTestOptimization", 
       "Optimize test suite execution for faster feedback",
       {
-        testPlanId: z.coerce.number().describe("ID of the test plan to optimize"),
+        testPlanId: zId().describe("ID of the test plan to optimize"),
         optimizationGoal: z.enum(['time', 'coverage', 'reliability']).describe("Optimization goal")
       },
       async (params, extra) => {
@@ -1330,7 +1382,7 @@ async function main() {
     allowedTools.has("recordExploratoryTestResults") && server.tool("recordExploratoryTestResults", 
       "Record findings during exploratory testing",
       {
-        sessionId: z.coerce.number().describe("ID of the exploratory session"),
+        sessionId: zId().describe("ID of the exploratory session"),
         findings: z.array(z.string()).describe("List of findings to record"),
         attachments: z.array(z.object({
           name: z.string().describe("Name of the attachment"),
@@ -1351,8 +1403,8 @@ async function main() {
     allowedTools.has("convertFindingsToWorkItems") && server.tool("convertFindingsToWorkItems", 
       "Convert exploratory test findings to work items",
       {
-        sessionId: z.coerce.number().describe("ID of the exploratory session"),
-        findingIds: z.array(z.coerce.number()).describe("IDs of findings to convert"),
+        sessionId: zId().describe("ID of the exploratory session"),
+        findingIds: zIdArray().describe("IDs of findings to convert"),
         workItemType: z.string().optional().describe("Type of work item to create")
       },
       async (params, extra) => {
@@ -1813,7 +1865,7 @@ async function main() {
     allowedTools.has("getAICodeReview") && server.tool("getAICodeReview", 
       "Get AI-based code review suggestions",
       {
-        pullRequestId: z.coerce.number().optional().describe("ID of the pull request to review"),
+        pullRequestId: zIdOptional().describe("ID of the pull request to review"),
         repositoryId: z.string().optional().describe("ID of the repository"),
         commitId: z.string().optional().describe("ID of the commit to review"),
         filePath: z.string().optional().describe("Path to the file to review")
@@ -1869,7 +1921,7 @@ async function main() {
       "Predict potential bugs in code changes. Supports both repository names and IDs.",
       {
         repository: z.string().describe("Repository name (e.g., 'MyProject') or ID (GUID). Repository names are case-insensitive."),
-        pullRequestId: z.coerce.number().optional().describe("ID of the pull request"),
+        pullRequestId: zIdOptional().describe("ID of the pull request"),
         branch: z.string().optional().describe("Branch to analyze"),
         filePath: z.string().optional().describe("Path to the file to analyze")
       },
@@ -1904,7 +1956,7 @@ async function main() {
     allowedTools.has("getPredictiveEffortEstimation") && server.tool("getPredictiveEffortEstimation", 
       "AI-based effort estimation for work items",
       {
-        workItemIds: z.array(z.coerce.number()).optional().describe("IDs of work items to estimate"),
+        workItemIds: zIdArray().optional().describe("IDs of work items to estimate"),
         workItemType: z.string().optional().describe("Type of work items to estimate"),
         areaPath: z.string().optional().describe("Area path to filter work items")
       },
@@ -1939,7 +1991,7 @@ async function main() {
     allowedTools.has("suggestWorkItemRefinements") && server.tool("suggestWorkItemRefinements", 
       "Get AI suggestions for work item refinements",
       {
-        workItemId: z.coerce.number().optional().describe("ID of the work item to refine"),
+        workItemId: zIdOptional().describe("ID of the work item to refine"),
         workItemType: z.string().optional().describe("Type of work item"),
         areaPath: z.string().optional().describe("Area path to filter work items")
       },
@@ -1990,7 +2042,7 @@ async function main() {
     allowedTools.has("predictBuildFailures") && server.tool("predictBuildFailures", 
       "Predict potential build failures before they occur",
       {
-        buildDefinitionId: z.coerce.number().describe("ID of the build definition"),
+        buildDefinitionId: zId().describe("ID of the build definition"),
         lookbackPeriod: z.string().optional().describe("Period to analyze for patterns (e.g., '30d')")
       },
       async (params, extra) => {
@@ -2006,7 +2058,7 @@ async function main() {
     allowedTools.has("optimizeTestSelection") && server.tool("optimizeTestSelection", 
       "Intelligently select tests to run based on changes",
       {
-        buildId: z.coerce.number().describe("ID of the build"),
+        buildId: zId().describe("ID of the build"),
         changedFiles: z.array(z.string()).optional().describe("List of changed files"),
         maxTestCount: z.coerce.number().optional().describe("Maximum number of tests to select")
       },
@@ -2090,7 +2142,7 @@ async function main() {
     allowedTools.has("getBuilds") && server.tool("getBuilds",
       "List builds with optional filters (status, result, branch, definition, tags)",
       {
-        definitions: z.preprocess(coerceArray, z.array(z.coerce.number()).optional()).describe("Filter by definition IDs"),
+        definitions: zIdArray().optional().describe("Filter by definition IDs"),
         statusFilter: z.string().optional().describe("Filter by status: inProgress, completed, cancelling, postponed, notStarted, all"),
         resultFilter: z.string().optional().describe("Filter by result: succeeded, partiallySucceeded, failed, canceled"),
         branchName: z.string().optional().describe("Filter by source branch (e.g., 'refs/heads/main')"),
@@ -2110,7 +2162,7 @@ async function main() {
     allowedTools.has("getBuild") && server.tool("getBuild",
       "Get detailed information about a specific build by ID",
       {
-        buildId: z.coerce.number().describe("Build ID"),
+        buildId: zId().describe("Build ID"),
       },
       async (params) => {
         const result = await buildTools.getBuild(params);
@@ -2121,8 +2173,8 @@ async function main() {
     allowedTools.has("getBuildLog") && server.tool("getBuildLog",
       "Get build logs. Without logId returns log metadata list; with logId returns specific log content",
       {
-        buildId: z.coerce.number().describe("Build ID"),
-        logId: z.coerce.number().optional().describe("Specific log ID to retrieve content for"),
+        buildId: zId().describe("Build ID"),
+        logId: zIdOptional().describe("Specific log ID to retrieve content for"),
         startLine: z.coerce.number().optional().describe("Start line for log content"),
         endLine: z.coerce.number().optional().describe("End line for log content"),
       },
@@ -2135,7 +2187,7 @@ async function main() {
     allowedTools.has("getBuildChanges") && server.tool("getBuildChanges",
       "Get changes (commits) associated with a build",
       {
-        buildId: z.coerce.number().describe("Build ID"),
+        buildId: zId().describe("Build ID"),
         top: z.coerce.number().optional().describe("Maximum number of changes to return (default 50)"),
       },
       async (params) => {
@@ -2163,7 +2215,7 @@ async function main() {
     allowedTools.has("getDefinition") && server.tool("getDefinition",
       "Get detailed information about a specific pipeline/build definition",
       {
-        definitionId: z.coerce.number().describe("Definition ID"),
+        definitionId: zId().describe("Definition ID"),
         includeLatestBuilds: z.boolean().optional().describe("Include latest build info"),
       },
       async (params) => {
@@ -2175,7 +2227,7 @@ async function main() {
     allowedTools.has("runPipeline") && server.tool("runPipeline",
       "Queue/trigger a pipeline run",
       {
-        definitionId: z.coerce.number().describe("Pipeline definition ID to run"),
+        definitionId: zId().describe("Pipeline definition ID to run"),
         sourceBranch: z.string().optional().describe("Source branch (e.g., 'refs/heads/main')"),
         parameters: z.record(z.string()).optional().describe("Pipeline parameters as key-value pairs"),
       },
@@ -2188,7 +2240,7 @@ async function main() {
     allowedTools.has("getBuildArtifacts") && server.tool("getBuildArtifacts",
       "List artifacts produced by a build",
       {
-        buildId: z.coerce.number().describe("Build ID"),
+        buildId: zId().describe("Build ID"),
       },
       async (params) => {
         const result = await buildTools.getBuildArtifacts(params);
@@ -2199,7 +2251,7 @@ async function main() {
     allowedTools.has("getBuildTimeline") && server.tool("getBuildTimeline",
       "Get build timeline showing stages, jobs, and tasks with their status",
       {
-        buildId: z.coerce.number().describe("Build ID"),
+        buildId: zId().describe("Build ID"),
       },
       async (params) => {
         const result = await buildTools.getBuildTimeline(params);
@@ -2210,7 +2262,7 @@ async function main() {
     allowedTools.has("getBuildWorkItems") && server.tool("getBuildWorkItems",
       "Get work items associated with a build",
       {
-        buildId: z.coerce.number().describe("Build ID"),
+        buildId: zId().describe("Build ID"),
         top: z.coerce.number().optional().describe("Maximum number of work items to return (default 50)"),
       },
       async (params) => {

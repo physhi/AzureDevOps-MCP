@@ -105,21 +105,73 @@ export class ProjectTools {
    */
   public async getAreas(params: GetAreasParams): Promise<McpResponse> {
     try {
-      const areas = await this.projectService.getAreas(params);
+      // When filtering, fetch deeper to search more of the tree
+      const fetchDepth = params.filter ? Math.max(params.depth ?? 2, 5) : (params.depth ?? 2);
+      const areas = await this.projectService.getAreas({ ...params, depth: fetchDepth });
 
-      let md = `## Areas\n\n**Project:** \`${params.projectId}\`\n\n`;
+      let md = `## Areas\n\n**Project:** \`${params.projectId}\``;
+      if (params.path) md += ` | **Path:** \`${params.path}\``;
+      if (params.filter) md += ` | **Filter:** \`${params.filter}\``;
+      md += `\n\n`;
 
+      const MAX_NODES = 200;
+      let nodeCount = 0;
+      let truncated = false;
+
+      // If filtering, collect matching nodes as a flat list
+      if (params.filter) {
+        const pattern = params.filter.toLowerCase();
+        const matches: Array<{ name: string; path: string; id: number }> = [];
+
+        const searchTree = (node: any, parentPath: string = '') => {
+          const nodePath = parentPath ? `${parentPath}\\${node.name}` : node.name;
+          if ((node.name || '').toLowerCase().includes(pattern)) {
+            matches.push({ name: node.name, path: nodePath, id: node.id });
+          }
+          if (node.children && Array.isArray(node.children)) {
+            for (const child of node.children) {
+              if (matches.length >= MAX_NODES) break;
+              searchTree(child, nodePath);
+            }
+          }
+        };
+
+        if (areas) searchTree(areas, params.path || '');
+
+        if (matches.length === 0) {
+          md += `No areas matching "${params.filter}" found.\n\n💡 Try a broader filter or increase \`depth\` to search deeper.`;
+        } else {
+          md += `**${matches.length} matching area${matches.length !== 1 ? 's' : ''}**\n\n`;
+          const rows = matches.map(m => [m.path, `${m.id}`]);
+          md += markdownTable(['Path', 'ID'], rows);
+          if (matches.length >= MAX_NODES) {
+            md += `\n⚠️ Results truncated at ${MAX_NODES}. Narrow your filter or use \`path\` to search a subtree.`;
+          }
+        }
+
+        return formatMcpResponse(matches, md, false, true);
+      }
+
+      // No filter — render tree
       const formatAreaTree = (node: any, indent: number = 0): string => {
+        if (truncated) return '';
+        nodeCount++;
+        if (nodeCount > MAX_NODES) {
+          truncated = true;
+          return '';
+        }
         let result = '';
         const prefix = indent > 0 ? '  '.repeat(indent) + '└─ ' : '';
         const name = node.name || 'N/A';
-        result += `${prefix}📁 ${name}`;
+        const hasChildren = node.hasChildren || (node.children && node.children.length > 0);
+        result += `${prefix}${hasChildren ? '📂' : '📁'} ${name}`;
         if (node.id) result += ` (ID: ${node.id})`;
         result += '\n';
         if (node.children && Array.isArray(node.children)) {
-          node.children.forEach((child: any) => {
+          for (const child of node.children) {
+            if (truncated) break;
             result += formatAreaTree(child, indent + 1);
-          });
+          }
         }
         return result;
       };
@@ -127,11 +179,18 @@ export class ProjectTools {
       if (areas && typeof areas === 'object') {
         md += '```\n';
         if (Array.isArray(areas)) {
-          areas.forEach((a: any) => { md += formatAreaTree(a); });
+          for (const a of areas) {
+            if (truncated) break;
+            md += formatAreaTree(a);
+          }
         } else {
           md += formatAreaTree(areas);
         }
         md += '```\n';
+      }
+
+      if (truncated) {
+        md += `\n⚠️ **Truncated** — showing first ${MAX_NODES} of ${nodeCount}+ nodes. Use \`path\` to drill into a subtree, \`filter\` to search by name, or reduce \`depth\`.\n`;
       }
 
       return formatMcpResponse(areas, md, false, true);
@@ -148,21 +207,29 @@ export class ProjectTools {
     try {
       const iterations = await this.projectService.getIterations(params);
 
-      let md = `## Iterations\n\n**Project:** \`${params.projectId}\`\n\n`;
+      let md = `## Iterations\n\n**Project:** \`${params.projectId}\``;
+      if (params.path) md += ` | **Path:** \`${params.path}\``;
+      md += `\n\n`;
+
+      const MAX_NODES = 200;
 
       const flattenIterations = (node: any, list: any[] = []): any[] => {
-        if (node.hasChildren === false || (!node.children && node.name)) {
+        if (list.length >= MAX_NODES) return list;
+        if (node.name) {
           list.push(node);
         }
         if (node.children && Array.isArray(node.children)) {
-          node.children.forEach((child: any) => flattenIterations(child, list));
+          for (const child of node.children) {
+            if (list.length >= MAX_NODES) break;
+            flattenIterations(child, list);
+          }
         }
         return list;
       };
 
       let iterList: any[] = [];
       if (Array.isArray(iterations)) {
-        iterList = iterations;
+        iterList = iterations.slice(0, MAX_NODES);
       } else if (iterations?.children) {
         iterList = flattenIterations(iterations);
       } else if (iterations?.name) {
@@ -179,6 +246,10 @@ export class ProjectTools {
           i.attributes?.timeFrame || '-'
         ]);
         md += markdownTable(['Name', 'Start', 'End', 'TimeFrame'], rows);
+
+        if (iterList.length >= MAX_NODES) {
+          md += `\n⚠️ **Truncated** — showing first ${MAX_NODES} iterations. Use the \`path\` parameter to drill into a specific subtree, or reduce \`depth\`.\n`;
+        }
       }
 
       return formatMcpResponse(iterations, md, false, true);

@@ -254,12 +254,12 @@ export class BoardsSprintsService extends AzureDevOpsService {
   }
 
   /**
-   * Get all teams in the configured project
+   * Get teams in the configured project with pagination
    */
-  public async getTeams(): Promise<any[]> {
+  public async getTeams(top?: number, skip?: number): Promise<any[]> {
     try {
       const coreApi = await this.getCoreApi();
-      const teams = await coreApi.getTeams(this.config.project);
+      const teams = await coreApi.getTeams(this.config.project, undefined, top ?? 100, skip);
       return teams;
     } catch (error) {
       console.error('Error getting teams:', error);
