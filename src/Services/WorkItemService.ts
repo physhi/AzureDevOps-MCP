@@ -572,6 +572,20 @@ export class WorkItemService extends AzureDevOpsService {
   }
 
   /**
+   * Unescape HTML entities in markdown text so that characters like ", >, <
+   * render correctly instead of appearing as &quot;, &gt;, &lt; literals.
+   */
+  private unescapeHtmlEntities(text: string): string {
+    return text
+      .replace(/&quot;/g, '"')
+      .replace(/&amp;/g, '&')
+      .replace(/&lt;/g, '<')
+      .replace(/&gt;/g, '>')
+      .replace(/&#39;/g, "'")
+      .replace(/&apos;/g, "'");
+  }
+
+  /**
    * Add a comment to a work item.
    * Uses the REST client directly to pass the `format` query parameter
    * (0 = markdown, 1 = html) which the SDK's addComment() doesn't expose.
@@ -579,6 +593,7 @@ export class WorkItemService extends AzureDevOpsService {
   public async addWorkItemComment(params: AddWorkItemCommentParams): Promise<any> {
     try {
       const format = params.format === 'html' ? 1 : 0; // default to markdown (0)
+      const text = format === 0 ? this.unescapeHtmlEntities(params.text) : params.text;
 
       // Sanitise inputs before URL interpolation (SDK calls handle this internally, but this is a raw REST call)
       const id = Math.floor(Number(params.id));
@@ -588,7 +603,7 @@ export class WorkItemService extends AzureDevOpsService {
       const url = `${baseUrl}/${project}/_apis/wit/workItems/${id}/comments?format=${format}&api-version=7.2-preview.4`;
 
       const response = await this.withAuthRetry(() =>
-        this.connection.rest.create<any>(url, { text: params.text })
+        this.connection.rest.create<any>(url, { text })
       );
 
       if (!response.result) {
@@ -597,6 +612,39 @@ export class WorkItemService extends AzureDevOpsService {
       return response.result;
     } catch (error) {
       console.error(`Error adding comment to work item ${params.id}:`, error);
+      throw error;
+    }
+  }
+
+  /**
+   * Update an existing comment on a work item.
+   * Uses the REST client directly to pass the `format` query parameter
+   * (0 = markdown, 1 = html) which the SDK doesn't expose.
+   */
+  public async updateWorkItemComment(params: { id: number; commentId: number; text: string; format?: 'markdown' | 'html' }): Promise<any> {
+    try {
+      const format = params.format === 'html' ? 1 : 0;
+      const text = format === 0 ? this.unescapeHtmlEntities(params.text) : params.text;
+
+      const id = Math.floor(Number(params.id));
+      if (!Number.isSafeInteger(id) || id <= 0) throw new Error(`Invalid work item ID: ${params.id}`);
+      const commentId = Math.floor(Number(params.commentId));
+      if (!Number.isSafeInteger(commentId) || commentId <= 0) throw new Error(`Invalid comment ID: ${params.commentId}`);
+
+      const baseUrl = this.connection.serverUrl.replace(/\/+$/, '');
+      const project = encodeURIComponent(this.config.project);
+      const url = `${baseUrl}/${project}/_apis/wit/workItems/${id}/comments/${commentId}?format=${format}&api-version=7.2-preview.4`;
+
+      const response = await this.withAuthRetry(() =>
+        this.connection.rest.update<any>(url, { text })
+      );
+
+      if (!response.result) {
+        throw new Error(`Azure DevOps API returned no data when updating comment ${params.commentId} on work item ${params.id}`);
+      }
+      return response.result;
+    } catch (error) {
+      console.error(`Error updating comment ${params.commentId} on work item ${params.id}:`, error);
       throw error;
     }
   }

@@ -71,6 +71,17 @@ export interface AddWorkItemCommentParams {
 }
 
 /**
+ * Interface for managing (add or update) a work item comment
+ */
+export interface ManageWorkItemCommentParams {
+  action: 'add' | 'update';
+  id: number;
+  text: string;
+  format?: 'markdown' | 'html';
+  commentId?: number; // required for 'update'
+}
+
+/**
  * Interface for updating a work item state
  */
 export interface UpdateWorkItemStateParams {

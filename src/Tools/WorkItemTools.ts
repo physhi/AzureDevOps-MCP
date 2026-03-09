@@ -10,6 +10,7 @@ import {
   CreateWorkItemParams,
   UpdateWorkItemParams,
   AddWorkItemCommentParams,
+  ManageWorkItemCommentParams,
   GetWorkItemCommentsParams,
   UpdateWorkItemStateParams,
   AssignWorkItemParams,
@@ -625,6 +626,42 @@ export class WorkItemTools {
       return formatMcpResponse(comment, md, false, true);
     } catch (error) {
       console.error('Error in addWorkItemComment tool:', error);
+      return formatErrorResponse(error);
+    }
+  }
+
+  /**
+   * Manage (add or update) a work item comment
+   */
+  public async manageWorkItemComment(params: ManageWorkItemCommentParams): Promise<McpResponse> {
+    try {
+      const formatUsed = params.format || 'markdown';
+
+      if (params.action === 'update') {
+        if (!params.commentId) {
+          throw new Error('commentId is required when action is "update"');
+        }
+        const comment = await this.workItemService.updateWorkItemComment({
+          id: params.id,
+          commentId: params.commentId,
+          text: params.text,
+          format: params.format,
+        });
+
+        const md = `## ✅ Comment Updated\n\n**Work Item:** #${params.id} | **Comment:** #${params.commentId} | **Format:** ${formatUsed}\n\n> ${truncateText(params.text, 100)}`;
+        return formatMcpResponse(comment, md, false, true);
+      } else {
+        const comment = await this.workItemService.addWorkItemComment({
+          id: params.id,
+          text: params.text,
+          format: params.format,
+        });
+
+        const md = `## ✅ Comment Added\n\n**Work Item:** #${params.id} | **Format:** ${formatUsed}\n\n> ${truncateText(params.text, 100)}`;
+        return formatMcpResponse(comment, md, false, true);
+      }
+    } catch (error) {
+      console.error('Error in manageWorkItemComment tool:', error);
       return formatErrorResponse(error);
     }
   }

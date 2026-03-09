@@ -250,7 +250,27 @@ async function main() {
       }
     );
     
-    allowedTools.has("updateWorkItemState") && server.tool("updateWorkItemState", 
+    allowedTools.has("manageWorkItemComment") && server.tool("manageWorkItemComment",
+      "Add or update a comment on a work item. Use action 'add' for new comments, 'update' to edit existing ones.",
+      {
+        action: z.enum(['add', 'update']).describe("'add' for new comment, 'update' to edit existing"),
+        id: zId().describe("Work item ID"),
+        text: z.string().describe("Comment text (supports markdown by default)"),
+        format: z.enum(['markdown', 'html']).optional().default('markdown').describe("Comment format"),
+        commentId: zIdOptional().describe("Comment ID — required for 'update' action"),
+      },
+      async (params, extra) => {
+        const result = await workItemTools.manageWorkItemComment(params);
+        return {
+          content: result.content,
+          rawData: result.rawData,
+          isError: result.isError,
+          structuredContent: result.structuredContent
+        };
+      }
+    );
+
+    allowedTools.has("updateWorkItemState") && server.tool("updateWorkItemState",
       "Update the state of a work item",
       {
         id: zId().describe("ID of the work item"),
