@@ -597,20 +597,19 @@ export class WorkItemService extends AzureDevOpsService {
 
   /**
    * Add a comment to a work item.
-   * Always converts markdown to HTML locally (ADO's server-side markdown renderer
-   * doesn't handle complex markdown reliably) and sends as format=1 (html).
+   * Uses ADO's server-side markdown renderer (format=0) for comments.
    */
   public async addWorkItemComment(params: AddWorkItemCommentParams): Promise<any> {
     try {
-      // Always send as HTML — convert markdown to HTML ourselves for reliable rendering
-      const text = params.format === 'html' ? params.text : markdownToHtml(this.unescapeHtmlEntities(params.text));
+      const format = params.format === 'html' ? 1 : 0; // default to markdown (0)
+      const text = format === 0 ? this.unescapeHtmlEntities(params.text) : params.text;
 
       // Sanitise inputs before URL interpolation (SDK calls handle this internally, but this is a raw REST call)
       const id = Math.floor(Number(params.id));
       if (!Number.isSafeInteger(id) || id <= 0) throw new Error(`Invalid work item ID: ${params.id}`);
       const baseUrl = this.connection.serverUrl.replace(/\/+$/, '');
       const project = encodeURIComponent(this.config.project);
-      const url = `${baseUrl}/${project}/_apis/wit/workItems/${id}/comments?format=1&api-version=7.2-preview.4`;
+      const url = `${baseUrl}/${project}/_apis/wit/workItems/${id}/comments?format=${format}&api-version=7.2-preview.4`;
 
       const response = await this.withAuthRetry(() =>
         this.connection.rest.create<any>(url, { text })
@@ -628,11 +627,12 @@ export class WorkItemService extends AzureDevOpsService {
 
   /**
    * Update an existing comment on a work item.
-   * Always converts markdown to HTML locally and sends as format=1 (html).
+   * Uses ADO's server-side markdown renderer (format=0) for comments.
    */
   public async updateWorkItemComment(params: { id: number; commentId: number; text: string; format?: 'markdown' | 'html' }): Promise<any> {
     try {
-      const text = params.format === 'html' ? params.text : markdownToHtml(this.unescapeHtmlEntities(params.text));
+      const format = params.format === 'html' ? 1 : 0;
+      const text = format === 0 ? this.unescapeHtmlEntities(params.text) : params.text;
 
       const id = Math.floor(Number(params.id));
       if (!Number.isSafeInteger(id) || id <= 0) throw new Error(`Invalid work item ID: ${params.id}`);
@@ -641,7 +641,7 @@ export class WorkItemService extends AzureDevOpsService {
 
       const baseUrl = this.connection.serverUrl.replace(/\/+$/, '');
       const project = encodeURIComponent(this.config.project);
-      const url = `${baseUrl}/${project}/_apis/wit/workItems/${id}/comments/${commentId}?format=1&api-version=7.2-preview.4`;
+      const url = `${baseUrl}/${project}/_apis/wit/workItems/${id}/comments/${commentId}?format=${format}&api-version=7.2-preview.4`;
 
       const response = await this.withAuthRetry(() =>
         this.connection.rest.update<any>(url, { text })
