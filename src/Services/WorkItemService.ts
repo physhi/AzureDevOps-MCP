@@ -597,12 +597,12 @@ export class WorkItemService extends AzureDevOpsService {
 
   /**
    * Add a comment to a work item.
-   * Uses ADO's server-side markdown renderer (format=0) for comments.
+   * Uses ADO's server-side markdown renderer (format=markdown) for comments.
    */
   public async addWorkItemComment(params: AddWorkItemCommentParams): Promise<any> {
     try {
-      const format = params.format === 'html' ? 1 : 0; // default to markdown (0)
-      const text = format === 0 ? this.unescapeHtmlEntities(params.text) : params.text;
+      const format = params.format === 'html' ? 'html' : 'markdown';
+      const text = format === 'markdown' ? this.unescapeHtmlEntities(params.text) : params.text;
 
       // Sanitise inputs before URL interpolation (SDK calls handle this internally, but this is a raw REST call)
       const id = Math.floor(Number(params.id));
@@ -627,12 +627,12 @@ export class WorkItemService extends AzureDevOpsService {
 
   /**
    * Update an existing comment on a work item.
-   * Uses ADO's server-side markdown renderer (format=0) for comments.
+   * Uses ADO's server-side markdown renderer (format=markdown) for comments.
    */
   public async updateWorkItemComment(params: { id: number; commentId: number; text: string; format?: 'markdown' | 'html' }): Promise<any> {
     try {
-      const format = params.format === 'html' ? 1 : 0;
-      const text = format === 0 ? this.unescapeHtmlEntities(params.text) : params.text;
+      const format = params.format === 'html' ? 'html' : 'markdown';
+      const text = format === 'markdown' ? this.unescapeHtmlEntities(params.text) : params.text;
 
       const id = Math.floor(Number(params.id));
       if (!Number.isSafeInteger(id) || id <= 0) throw new Error(`Invalid work item ID: ${params.id}`);
