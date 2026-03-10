@@ -26,6 +26,16 @@ import {
   AddChildWorkItemParams,
   UnlinkWorkItemParams,
 } from '../Interfaces/WorkItems';
+import { markdownToHtml } from '../utils/formatHelpers';
+
+/** Rich-text fields that expect HTML — markdown is auto-converted for these */
+const RICH_TEXT_FIELDS = new Set([
+  'System.Description',
+  'System.History',
+  'System.ReproSteps',
+  'Microsoft.VSTS.TCM.Steps',
+  'Microsoft.VSTS.Common.AcceptanceCriteria',
+]);
 
 export class WorkItemService extends AzureDevOpsService {
   constructor(config: AzureDevOpsConfig) {
@@ -442,12 +452,12 @@ export class WorkItemService extends AzureDevOpsService {
         value: params.title
       });
       
-      // Add description if provided
+      // Add description if provided (convert markdown to HTML for Azure DevOps rich-text field)
       if (params.description) {
         patchDocument.push({
           op: Operation.Add,
           path: "/fields/System.Description",
-          value: params.description
+          value: markdownToHtml(params.description)
         });
       }
       
@@ -521,12 +531,12 @@ export class WorkItemService extends AzureDevOpsService {
       
       const patchDocument: JsonPatchOperation[] = [];
       
-      // Add fields from the params
+      // Add fields from the params (rich-text fields auto-converted from markdown to HTML)
       for (const [key, value] of Object.entries(params.fields)) {
         patchDocument.push({
           op: Operation.Add,
           path: `/fields/${key}`,
-          value: value
+          value: RICH_TEXT_FIELDS.has(key) && typeof value === 'string' ? markdownToHtml(value) : value
         });
       }
       
@@ -587,20 +597,20 @@ export class WorkItemService extends AzureDevOpsService {
 
   /**
    * Add a comment to a work item.
-   * Uses the REST client directly to pass the `format` query parameter
-   * (0 = markdown, 1 = html) which the SDK's addComment() doesn't expose.
+   * Always converts markdown to HTML locally (ADO's server-side markdown renderer
+   * doesn't handle complex markdown reliably) and sends as format=1 (html).
    */
   public async addWorkItemComment(params: AddWorkItemCommentParams): Promise<any> {
     try {
-      const format = params.format === 'html' ? 1 : 0; // default to markdown (0)
-      const text = format === 0 ? this.unescapeHtmlEntities(params.text) : params.text;
+      // Always send as HTML — convert markdown to HTML ourselves for reliable rendering
+      const text = params.format === 'html' ? params.text : markdownToHtml(this.unescapeHtmlEntities(params.text));
 
       // Sanitise inputs before URL interpolation (SDK calls handle this internally, but this is a raw REST call)
       const id = Math.floor(Number(params.id));
       if (!Number.isSafeInteger(id) || id <= 0) throw new Error(`Invalid work item ID: ${params.id}`);
       const baseUrl = this.connection.serverUrl.replace(/\/+$/, '');
       const project = encodeURIComponent(this.config.project);
-      const url = `${baseUrl}/${project}/_apis/wit/workItems/${id}/comments?format=${format}&api-version=7.2-preview.4`;
+      const url = `${baseUrl}/${project}/_apis/wit/workItems/${id}/comments?format=1&api-version=7.2-preview.4`;
 
       const response = await this.withAuthRetry(() =>
         this.connection.rest.create<any>(url, { text })
@@ -618,13 +628,11 @@ export class WorkItemService extends AzureDevOpsService {
 
   /**
    * Update an existing comment on a work item.
-   * Uses the REST client directly to pass the `format` query parameter
-   * (0 = markdown, 1 = html) which the SDK doesn't expose.
+   * Always converts markdown to HTML locally and sends as format=1 (html).
    */
   public async updateWorkItemComment(params: { id: number; commentId: number; text: string; format?: 'markdown' | 'html' }): Promise<any> {
     try {
-      const format = params.format === 'html' ? 1 : 0;
-      const text = format === 0 ? this.unescapeHtmlEntities(params.text) : params.text;
+      const text = params.format === 'html' ? params.text : markdownToHtml(this.unescapeHtmlEntities(params.text));
 
       const id = Math.floor(Number(params.id));
       if (!Number.isSafeInteger(id) || id <= 0) throw new Error(`Invalid work item ID: ${params.id}`);
@@ -633,7 +641,7 @@ export class WorkItemService extends AzureDevOpsService {
 
       const baseUrl = this.connection.serverUrl.replace(/\/+$/, '');
       const project = encodeURIComponent(this.config.project);
-      const url = `${baseUrl}/${project}/_apis/wit/workItems/${id}/comments/${commentId}?format=${format}&api-version=7.2-preview.4`;
+      const url = `${baseUrl}/${project}/_apis/wit/workItems/${id}/comments/${commentId}?format=1&api-version=7.2-preview.4`;
 
       const response = await this.withAuthRetry(() =>
         this.connection.rest.update<any>(url, { text })
@@ -664,12 +672,12 @@ export class WorkItemService extends AzureDevOpsService {
         }
       ];
       
-      // Add comment if provided
+      // Add comment if provided (convert markdown to HTML for rich-text field)
       if (params.comment) {
         patchDocument.push({
           op: Operation.Add,
           path: "/fields/System.History",
-          value: params.comment
+          value: markdownToHtml(params.comment)
         });
       }
       

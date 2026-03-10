@@ -175,11 +175,11 @@ async function main() {
     );
     
     allowedTools.has("createWorkItem") && server.tool("createWorkItem",
-      "Create a new work item",
+      "Create a new work item. Text fields support markdown (auto-converted to HTML). Use #ID to reference work items, @user to mention people.",
       {
         workItemType: z.string().describe("Type of work item to create"),
         title: z.string().describe("Title of the work item"),
-        description: z.string().optional().describe("Description of the work item"),
+        description: z.string().optional().describe("Description (markdown). Use #ID to link work items, @user to mention people"),
         assignedTo: z.string().optional().describe("User to assign the work item to"),
         state: z.string().optional().describe("Initial state of the work item"),
         areaPath: z.string().optional().describe("Area path for the work item"),
@@ -198,10 +198,10 @@ async function main() {
     );
     
     allowedTools.has("updateWorkItem") && server.tool("updateWorkItem",
-      "Update an existing work item",
+      "Update an existing work item. Rich-text fields (System.Description, System.History, AcceptanceCriteria) accept markdown (auto-converted to HTML). Use #ID to reference work items, @user to mention people.",
       {
         id: zId().describe("ID of the work item to update"),
-        fields: z.record(z.any()).describe("Fields to update on the work item")
+        fields: z.record(z.any()).describe("Fields to update. Rich-text fields like System.Description accept markdown")
       },
       async (params, extra) => {
         const result = await workItemTools.updateWorkItem(params);
@@ -234,10 +234,10 @@ async function main() {
     );
 
     allowedTools.has("addWorkItemComment") && server.tool("addWorkItemComment",
-      "Add a comment to a work item. Supports markdown formatting by default.",
+      "Add a comment to a work item. Supports markdown formatting by default. Use #ID to reference work items, @user to mention people.",
       {
         id: zId().describe("ID of the work item"),
-        text: z.string().describe("Comment text (supports markdown when format is 'markdown')"),
+        text: z.string().describe("Comment text (markdown). Use #ID to link work items, @user to mention people"),
         format: z.enum(['markdown', 'html']).optional().default('markdown').describe("Comment format: 'markdown' (default) or 'html'")
       },
       async (params, extra) => {
@@ -252,7 +252,7 @@ async function main() {
     );
     
     allowedTools.has("manageWorkItemComment") && server.tool("manageWorkItemComment",
-      "Add or update a comment on a work item. Use action 'add' for new comments, 'update' to edit existing ones.",
+      "Add or update a comment on a work item. Use action 'add' for new comments, 'update' to edit existing ones. Markdown supported. Use #ID to reference work items, @user to mention people.",
       {
         action: z.enum(['add', 'update']).describe("'add' for new comment, 'update' to edit existing"),
         id: zId().describe("Work item ID"),
@@ -334,7 +334,7 @@ async function main() {
           z.object({
             workItemType: z.string().describe("Type of work item to create"),
             title: z.string().describe("Title of the work item"),
-            description: z.string().optional().describe("Description of the work item"),
+            description: z.string().optional().describe("Description (markdown). Use #ID to link work items, @user to mention people"),
             assignedTo: z.string().optional().describe("User to assign the work item to"),
             state: z.string().optional().describe("Initial state of the work item"),
             areaPath: z.string().optional().describe("Area path for the work item"),
@@ -402,7 +402,7 @@ async function main() {
         parentId: zId().describe("Parent work item ID"),
         workItemType: z.string().describe("Type of child work item (e.g., 'Task', 'Bug')"),
         title: z.string().describe("Title of the child work item"),
-        description: z.string().optional().describe("Description"),
+        description: z.string().optional().describe("Description (markdown). Use #ID to link work items, @user to mention people"),
         assignedTo: z.string().optional().describe("User to assign to"),
         state: z.string().optional().describe("Initial state"),
         areaPath: z.string().optional().describe("Area path"),

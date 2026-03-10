@@ -19,6 +19,7 @@ export class AzureDevOpsService {
   protected connection: azdev.WebApi;
   protected config: AzureDevOpsConfig;
   protected authHandler: IRequestHandler | undefined;
+  private _authenticatedUserId?: string;
 
   constructor(config: AzureDevOpsConfig) {
     this.config = config;
@@ -168,5 +169,19 @@ export class AzureDevOpsService {
       console.error("Error listing work items:", error);
       throw error;
     }
+  }
+
+  /**
+   * Get the authenticated user's ID, cached after first resolution.
+   */
+  protected async getAuthenticatedUserId(): Promise<string> {
+    if (!this._authenticatedUserId) {
+      const connectionData = await this.connection.connect();
+      this._authenticatedUserId = connectionData.authenticatedUser?.id;
+    }
+    if (!this._authenticatedUserId) {
+      throw new Error('Could not determine authenticated user identity. Ensure your credentials are valid.');
+    }
+    return this._authenticatedUserId;
   }
 }

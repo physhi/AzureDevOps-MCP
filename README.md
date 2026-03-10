@@ -1,7 +1,6 @@
 # Azure DevOps MCP Integration
 
-# Star History
-[![Star History Chart](https://api.star-history.com/svg?repos=RyanCardin15/AzureDevOps-MCP&type=Date)](https://star-history.com/#RyanCardin15/AzureDevOps-MCP&Date)
+[![npm version](https://img.shields.io/npm/v/@achieveai/azuredevops-mcp.svg)](https://www.npmjs.com/package/@achieveai/azuredevops-mcp)
 
 A powerful integration for Azure DevOps that provides seamless access to work items, repositories, projects, boards, and sprints through the Model Context Protocol (MCP) server.
 
@@ -164,6 +163,59 @@ Set `ENABLE_STRUCTURED_CONTENT=true` to include machine-readable JSON in the `st
 
 ## Installation
 
+### Quick Start (npm)
+
+The easiest way to use this MCP server is via the published npm package:
+
+```bash
+npx @achieveai/azuredevops-mcp
+```
+
+Or install globally:
+
+```bash
+npm install -g @achieveai/azuredevops-mcp
+```
+
+### MCP Client Configuration
+
+Add to your MCP client config (e.g., Claude Desktop `claude_desktop_config.json` or `.mcp.json`):
+
+```json
+{
+  "mcpServers": {
+    "azure-devops": {
+      "command": "npx",
+      "args": ["-y", "@achieveai/azuredevops-mcp"],
+      "env": {
+        "AZURE_DEVOPS_ORG_URL": "https://dev.azure.com/your-organization",
+        "AZURE_DEVOPS_PROJECT": "your-project",
+        "AZURE_DEVOPS_AUTH_TYPE": "pat",
+        "AZURE_DEVOPS_PERSONAL_ACCESS_TOKEN": "your-pat-token"
+      }
+    }
+  }
+}
+```
+
+For Entra ID (Azure AD) authentication:
+
+```json
+{
+  "mcpServers": {
+    "azure-devops": {
+      "command": "npx",
+      "args": ["-y", "@achieveai/azuredevops-mcp"],
+      "env": {
+        "AZURE_DEVOPS_ORG_URL": "https://dev.azure.com/your-organization",
+        "AZURE_DEVOPS_PROJECT": "your-project",
+        "AZURE_DEVOPS_AUTH_TYPE": "entra"
+      }
+    }
+  }
+}
+```
+
 ### Installing via Smithery
 
 To install azuredevops-mcp for Claude Desktop automatically via [Smithery](https://smithery.ai/server/@RyanCardin15/azuredevops-mcp):
@@ -172,17 +224,21 @@ To install azuredevops-mcp for Claude Desktop automatically via [Smithery](https
 npx -y @smithery/cli install @RyanCardin15/azuredevops-mcp --client claude
 ```
 
-### Prerequisites
-- Node.js (v16 or later)
-- TypeScript (v4 or later)
+### Development Setup
+
+If you want to build from source:
+
+#### Prerequisites
+- Node.js (v18 or later)
+- TypeScript (v5 or later)
 - An Azure DevOps account with a Personal Access Token (PAT) or appropriate on-premises credentials
 
-### Setup
+#### Steps
 
 1. Clone the repository:
    ```bash
-   git clone <repository-url>
-   cd AzureDevOps
+   git clone https://github.com/physhi/AzureDevOps-MCP.git
+   cd AzureDevOps-MCP
    ```
 
 2. Install dependencies:
@@ -532,10 +588,6 @@ Contributions are welcome! Here's how you can contribute:
 
 Please ensure your code passes linting and includes appropriate tests.
 
-[![Verified on MseeP](https://mseep.ai/badge.svg)](https://mseep.ai/app/22aecb18-6269-482a-9b0c-a96653410bf3)
+## Upstream
 
-[![smithery badge](https://smithery.ai/badge/@RyanCardin15/azuredevops-mcp)](https://smithery.ai/server/@RyanCardin15/azuredevops-mcp)
-
-<a href="https://glama.ai/mcp/servers/z7mxfcinp8">
-  <img width="380" height="200" src="https://glama.ai/mcp/servers/z7mxfcinp8/badge" />
-</a>
+This is a fork of [RyanCardin15/AzureDevOps-MCP](https://github.com/RyanCardin15/AzureDevOps-MCP) with additional features including Entra ID authentication, smart response formatting, markdown-to-HTML conversion for work item fields, and robust LLM input parsing.

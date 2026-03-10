@@ -3,6 +3,8 @@
  * Extracted from WorkItemTools.ts and GitTools.ts for reuse across all tool files.
  */
 
+import { marked } from 'marked';
+
 // ── Date Formatting ──────────────────────────────────────────────
 
 export function formatRelativeDate(dateString: string): string {
@@ -72,6 +74,21 @@ export function stripHtml(html: string): string {
     .replace(/\n /g, '\n')                        // trim leading space after newlines
     .replace(/\n{3,}/g, '\n\n')                  // collapse 3+ newlines to 2
     .trim();
+}
+
+// ── Markdown → HTML Conversion ──────────────────────────────────
+
+/**
+ * Convert markdown text to HTML for Azure DevOps rich-text fields
+ * (System.Description, System.History, etc.) which expect HTML content.
+ */
+export function markdownToHtml(text: string): string {
+  if (!text) return '';
+  // Skip conversion if text already looks like HTML
+  if (text.trimStart().startsWith('<') && /<\/(p|div|h[1-6]|ul|ol|table|span)>/i.test(text)) {
+    return text;
+  }
+  return marked.parse(text, { async: false }) as string;
 }
 
 // ── Effort Formatting ────────────────────────────────────────────

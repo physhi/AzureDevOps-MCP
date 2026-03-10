@@ -996,19 +996,22 @@ export class GitService extends AzureDevOpsService {
 
       // Resolve repository name/ID to actual repository ID
       const repositoryId = await this.resolveRepositoryId(params.repository);
-      
+
+      // Resolve current user's identity (the "me" shorthand isn't supported by all ADO configurations)
+      const reviewerId = await this.getAuthenticatedUserId();
+
       const vote = {
         vote: 10
       };
-      
+
       const result = await gitApi.createPullRequestReviewer(
         vote,
         repositoryId,
         params.pullRequestId,
-        "me",
+        reviewerId,
         this.config.project
       );
-      
+
       return result;
     } catch (error) {
       console.error(`Error approving pull request ${params.pullRequestId}:`, error);
