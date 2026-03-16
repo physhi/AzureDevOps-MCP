@@ -99,3 +99,14 @@ export interface GetBuildWorkItemsParams {
   top?: number;
   project?: string;
 }
+
+/**
+ * Parameters for getting builds associated with a pull request.
+ */
+export interface GetPullRequestBuildsParams {
+  repository: string;
+  pullRequestId: number;
+  includeTimeline?: boolean;
+  includeLogs?: boolean;
+  project?: string;
+}

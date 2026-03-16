@@ -14,6 +14,7 @@ import {
   IRequestHandler,
 } from "azure-devops-node-api/interfaces/common/VsoBaseInterfaces";
 import { TokenCredentialAuthHandler } from "./EntraAuthHandler";
+import { isRepositoryId } from "../utils/repositoryResolver";
 
 export class AzureDevOpsService {
   protected connection: azdev.WebApi;
@@ -183,5 +184,22 @@ export class AzureDevOpsService {
       throw new Error('Could not determine authenticated user identity. Ensure your credentials are valid.');
     }
     return this._authenticatedUserId;
+  }
+
+  /**
+   * Resolve a repository name to its ID (GUID).
+   * Returns as-is if already a GUID. Subclasses (e.g. GitService) may
+   * override with caching or richer error handling.
+   */
+  protected async resolveRepositoryId(repository: string, project?: string): Promise<string> {
+    if (isRepositoryId(repository)) {
+      return repository;
+    }
+    const gitApi = await this.connection.getGitApi();
+    const repo = await gitApi.getRepository(repository, project || this.config.project);
+    if (!repo?.id) {
+      throw new Error(`Could not resolve repository "${repository}" in project "${project || this.config.project}"`);
+    }
+    return repo.id;
   }
 }

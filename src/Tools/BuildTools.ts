@@ -12,6 +12,7 @@ import {
   ListBuildArtifactsParams,
   GetBuildTimelineParams,
   GetBuildWorkItemsParams,
+  GetPullRequestBuildsParams,
 } from '../Interfaces/Pipelines';
 import getClassMethods from '../utils/getClassMethods';
 import {
@@ -364,11 +365,92 @@ export class BuildTools {
       return formatErrorResponse(error);
     }
   }
+
+  // ── Get Pull Request Builds ─────────────────────────────────────
+
+  public async getPullRequestBuilds(params: GetPullRequestBuildsParams): Promise<McpResponse> {
+    try {
+      const result = await this.buildService.getPullRequestBuilds(params);
+      const builds: any[] = result.builds || [];
+
+      if (builds.length === 0) {
+        return formatMcpResponse(result, `## PR #${params.pullRequestId} - Builds\n\nNo builds found associated with this pull request.`);
+      }
+
+      let md = `## PR #${params.pullRequestId} - Builds\n\n`;
+      md += `**${builds.length} build${builds.length !== 1 ? 's' : ''}** found from policy evaluations\n\n`;
+
+      for (const build of builds) {
+        if (build.error) {
+          md += `### ❓ ${build.policyDefinitionName} (Build #${build.buildId})\n`;
+          md += `Error: ${build.error}\n\n`;
+          continue;
+        }
+
+        md += `### ${getBuildResultEmoji(build.result)} ${build.policyDefinitionName || build.definition?.name || 'Unknown'}\n\n`;
+        md += `| Property | Value |\n|---|---|\n`;
+        md += `| **Build ID** | ${build.id} |\n`;
+        md += `| **Build Number** | ${build.buildNumber || '-'} |\n`;
+        md += `| **Status** | ${getBuildStatusEmoji(build.status)} ${getBuildStatusLabel(build.status)} |\n`;
+        md += `| **Result** | ${getBuildResultEmoji(build.result)} ${getBuildResultLabel(build.result)} |\n`;
+        md += `| **Policy Status** | ${build.policyStatus || '-'} |\n`;
+        md += `| **Branch** | \`${build.sourceBranch?.replace('refs/heads/', '') || '-'}\` |\n`;
+        md += `| **Started** | ${build.startTime ? formatFullDate(build.startTime) : 'Not started'} |\n`;
+        md += `| **Finished** | ${build.finishTime ? formatFullDate(build.finishTime) : 'In progress'} |\n`;
+        md += `| **Duration** | ${formatDuration(build.startTime, build.finishTime)} |\n`;
+        md += '\n';
+
+        // Timeline summary if included
+        if (build.timeline?.records) {
+          const records = build.timeline.records;
+          const stages = records.filter((r: any) => r.type === 'Stage');
+          const failedTasks = records.filter((r: any) => r.type === 'Task' && (r.result === 2 || r.result === 'failed'));
+
+          if (stages.length > 0) {
+            md += '**Stages:**\n\n';
+            const stageRows = stages.map((s: any) => [
+              getTimelineResultEmoji(s.result),
+              truncateText(s.name || 'Unknown', 40),
+              formatTimelineResult(s.result),
+              formatDuration(s.startTime, s.finishTime),
+            ]);
+            md += markdownTable(['', 'Stage', 'Result', 'Duration'], stageRows);
+            md += '\n\n';
+          }
+
+          if (failedTasks.length > 0) {
+            md += '**Failed Tasks:**\n\n';
+            const taskRows = failedTasks.map((t: any) => [
+              '❌',
+              truncateText(t.name || 'Unknown', 40),
+              `Log #${t.log?.id || 'N/A'}`,
+              truncateText(t.issues?.map((i: any) => i.message).join('; ') || '-', 80),
+            ]);
+            md += markdownTable(['', 'Task', 'Log ID', 'Issues'], taskRows);
+            md += '\n\n';
+          }
+        }
+
+        // Log metadata summary if included
+        if (build.logMetadata) {
+          md += `**${build.logMetadata.length} log entries available.** Use \`getBuildLog\` with buildId=${build.id} and a logId to view specific logs.\n\n`;
+        }
+
+        md += '---\n\n';
+      }
+
+      md += `\n> **Tip:** Use \`getBuildTimeline\` with a buildId to see detailed stage/job/task breakdown, or \`getBuildLog\` with buildId and logId to read specific log content.`;
+
+      return formatMcpResponse(result, md, false, true);
+    } catch (error: any) {
+      return formatErrorResponse(error);
+    }
+  }
 }
 
 // ── Export tool method names ──────────────────────────────────────
 
-export const BuildToolMethods = getClassMethods(BuildTools);
+export const BuildToolMethods = getClassMethods(BuildTools.prototype);
 
 // ── Helper Functions ─────────────────────────────────────────────
 

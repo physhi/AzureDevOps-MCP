@@ -368,7 +368,7 @@ async function main() {
       },
       async (params) => {
         const result = await workItemTools.getWorkItemsBatch(params);
-        return { content: result.content, rawData: result.rawData, structuredContent: result.structuredContent };
+        return { content: result.content, rawData: result.rawData, isError: result.isError, structuredContent: result.structuredContent };
       }
     );
 
@@ -381,7 +381,7 @@ async function main() {
       },
       async (params) => {
         const result = await workItemTools.getWorkItemRevisions(params);
-        return { content: result.content, rawData: result.rawData, structuredContent: result.structuredContent };
+        return { content: result.content, rawData: result.rawData, isError: result.isError, structuredContent: result.structuredContent };
       }
     );
 
@@ -392,7 +392,7 @@ async function main() {
       },
       async (params) => {
         const result = await workItemTools.getQueryResults(params);
-        return { content: result.content, rawData: result.rawData, structuredContent: result.structuredContent };
+        return { content: result.content, rawData: result.rawData, isError: result.isError, structuredContent: result.structuredContent };
       }
     );
 
@@ -411,7 +411,7 @@ async function main() {
       },
       async (params) => {
         const result = await workItemTools.addChildWorkItem(params);
-        return { content: result.content, rawData: result.rawData, structuredContent: result.structuredContent };
+        return { content: result.content, rawData: result.rawData, isError: result.isError, structuredContent: result.structuredContent };
       }
     );
 
@@ -423,7 +423,7 @@ async function main() {
       },
       async (params) => {
         const result = await workItemTools.unlinkWorkItem(params);
-        return { content: result.content, rawData: result.rawData, structuredContent: result.structuredContent };
+        return { content: result.content, rawData: result.rawData, isError: result.isError, structuredContent: result.structuredContent };
       }
     );
 
@@ -1157,7 +1157,7 @@ async function main() {
       },
       async (params) => {
         const result = await gitTools.updatePullRequest(params);
-        return { content: result.content, rawData: result.rawData, structuredContent: result.structuredContent };
+        return { content: result.content, rawData: result.rawData, isError: result.isError, structuredContent: result.structuredContent };
       }
     );
 
@@ -1172,7 +1172,7 @@ async function main() {
       },
       async (params) => {
         const result = await gitTools.updatePullRequestReviewers(params);
-        return { content: result.content, rawData: result.rawData, structuredContent: result.structuredContent };
+        return { content: result.content, rawData: result.rawData, isError: result.isError, structuredContent: result.structuredContent };
       }
     );
 
@@ -1186,7 +1186,7 @@ async function main() {
       },
       async (params) => {
         const result = await gitTools.replyToComment(params);
-        return { content: result.content, rawData: result.rawData, structuredContent: result.structuredContent };
+        return { content: result.content, rawData: result.rawData, isError: result.isError, structuredContent: result.structuredContent };
       }
     );
 
@@ -1200,7 +1200,7 @@ async function main() {
       },
       async (params) => {
         const result = await gitTools.updatePullRequestThread(params);
-        return { content: result.content, rawData: result.rawData, structuredContent: result.structuredContent };
+        return { content: result.content, rawData: result.rawData, isError: result.isError, structuredContent: result.structuredContent };
       }
     );
 
@@ -1213,7 +1213,7 @@ async function main() {
       },
       async (params) => {
         const result = await gitTools.createBranch(params);
-        return { content: result.content, rawData: result.rawData, structuredContent: result.structuredContent };
+        return { content: result.content, rawData: result.rawData, isError: result.isError, structuredContent: result.structuredContent };
       }
     );
 
@@ -2101,7 +2101,7 @@ async function main() {
       },
       async (params) => {
         const result = await wikiTools.listWikis(params);
-        return { content: result.content, rawData: result.rawData, structuredContent: result.structuredContent };
+        return { content: result.content, rawData: result.rawData, isError: result.isError, structuredContent: result.structuredContent };
       }
     );
 
@@ -2113,7 +2113,7 @@ async function main() {
       },
       async (params) => {
         const result = await wikiTools.getWiki(params);
-        return { content: result.content, rawData: result.rawData, structuredContent: result.structuredContent };
+        return { content: result.content, rawData: result.rawData, isError: result.isError, structuredContent: result.structuredContent };
       }
     );
 
@@ -2127,7 +2127,7 @@ async function main() {
       },
       async (params) => {
         const result = await wikiTools.listWikiPages(params);
-        return { content: result.content, rawData: result.rawData, structuredContent: result.structuredContent };
+        return { content: result.content, rawData: result.rawData, isError: result.isError, structuredContent: result.structuredContent };
       }
     );
 
@@ -2140,7 +2140,7 @@ async function main() {
       },
       async (params) => {
         const result = await wikiTools.getWikiPageContent(params);
-        return { content: result.content, rawData: result.rawData, structuredContent: result.structuredContent };
+        return { content: result.content, rawData: result.rawData, isError: result.isError, structuredContent: result.structuredContent };
       }
     );
 
@@ -2155,7 +2155,7 @@ async function main() {
       },
       async (params) => {
         const result = await wikiTools.createOrUpdateWikiPage(params);
-        return { content: result.content, rawData: result.rawData, structuredContent: result.structuredContent };
+        return { content: result.content, rawData: result.rawData, isError: result.isError, structuredContent: result.structuredContent };
       }
     );
 
@@ -2163,6 +2163,7 @@ async function main() {
     allowedTools.has("getBuilds") && server.tool("getBuilds",
       "List builds with optional filters (status, result, branch, definition, tags)",
       {
+        project: z.string().optional().describe("Azure DevOps project name or ID. Defaults to the configured project."),
         definitions: zIdArray().optional().describe("Filter by definition IDs"),
         statusFilter: z.string().optional().describe("Filter by status: inProgress, completed, cancelling, postponed, notStarted, all"),
         resultFilter: z.string().optional().describe("Filter by result: succeeded, partiallySucceeded, failed, canceled"),
@@ -2176,24 +2177,26 @@ async function main() {
       },
       async (params) => {
         const result = await buildTools.getBuilds(params);
-        return { content: result.content, rawData: result.rawData, structuredContent: result.structuredContent };
+        return { content: result.content, rawData: result.rawData, isError: result.isError, structuredContent: result.structuredContent };
       }
     );
 
     allowedTools.has("getBuild") && server.tool("getBuild",
       "Get detailed information about a specific build by ID",
       {
+        project: z.string().optional().describe("Azure DevOps project name or ID. Defaults to the configured project."),
         buildId: zId().describe("Build ID"),
       },
       async (params) => {
         const result = await buildTools.getBuild(params);
-        return { content: result.content, rawData: result.rawData, structuredContent: result.structuredContent };
+        return { content: result.content, rawData: result.rawData, isError: result.isError, structuredContent: result.structuredContent };
       }
     );
 
     allowedTools.has("getBuildLog") && server.tool("getBuildLog",
       "Get build logs. Without logId returns log metadata list; with logId returns specific log content",
       {
+        project: z.string().optional().describe("Azure DevOps project name or ID. Defaults to the configured project."),
         buildId: zId().describe("Build ID"),
         logId: zIdOptional().describe("Specific log ID to retrieve content for"),
         startLine: z.coerce.number().optional().describe("Start line for log content"),
@@ -2201,25 +2204,27 @@ async function main() {
       },
       async (params) => {
         const result = await buildTools.getBuildLog(params);
-        return { content: result.content, rawData: result.rawData, structuredContent: result.structuredContent };
+        return { content: result.content, rawData: result.rawData, isError: result.isError, structuredContent: result.structuredContent };
       }
     );
 
     allowedTools.has("getBuildChanges") && server.tool("getBuildChanges",
       "Get changes (commits) associated with a build",
       {
+        project: z.string().optional().describe("Azure DevOps project name or ID. Defaults to the configured project."),
         buildId: zId().describe("Build ID"),
         top: z.coerce.number().optional().describe("Maximum number of changes to return (default 50)"),
       },
       async (params) => {
         const result = await buildTools.getBuildChanges(params);
-        return { content: result.content, rawData: result.rawData, structuredContent: result.structuredContent };
+        return { content: result.content, rawData: result.rawData, isError: result.isError, structuredContent: result.structuredContent };
       }
     );
 
     allowedTools.has("getDefinitions") && server.tool("getDefinitions",
       "List pipeline/build definitions with optional filters",
       {
+        project: z.string().optional().describe("Azure DevOps project name or ID. Defaults to the configured project."),
         name: z.string().optional().describe("Filter by definition name (wildcard supported)"),
         repositoryId: z.string().optional().describe("Filter by repository ID"),
         repositoryType: z.string().optional().describe("Repository type (e.g., 'TfsGit')"),
@@ -2229,66 +2234,86 @@ async function main() {
       },
       async (params) => {
         const result = await buildTools.getDefinitions(params);
-        return { content: result.content, rawData: result.rawData, structuredContent: result.structuredContent };
+        return { content: result.content, rawData: result.rawData, isError: result.isError, structuredContent: result.structuredContent };
       }
     );
 
     allowedTools.has("getDefinition") && server.tool("getDefinition",
       "Get detailed information about a specific pipeline/build definition",
       {
+        project: z.string().optional().describe("Azure DevOps project name or ID. Defaults to the configured project."),
         definitionId: zId().describe("Definition ID"),
         includeLatestBuilds: z.boolean().optional().describe("Include latest build info"),
       },
       async (params) => {
         const result = await buildTools.getDefinition(params);
-        return { content: result.content, rawData: result.rawData, structuredContent: result.structuredContent };
+        return { content: result.content, rawData: result.rawData, isError: result.isError, structuredContent: result.structuredContent };
       }
     );
 
     allowedTools.has("runPipeline") && server.tool("runPipeline",
       "Queue/trigger a pipeline run",
       {
+        project: z.string().optional().describe("Azure DevOps project name or ID. Defaults to the configured project."),
         definitionId: zId().describe("Pipeline definition ID to run"),
         sourceBranch: z.string().optional().describe("Source branch (e.g., 'refs/heads/main')"),
         parameters: z.record(z.string()).optional().describe("Pipeline parameters as key-value pairs"),
       },
       async (params) => {
         const result = await buildTools.runPipeline(params);
-        return { content: result.content, rawData: result.rawData, structuredContent: result.structuredContent };
+        return { content: result.content, rawData: result.rawData, isError: result.isError, structuredContent: result.structuredContent };
       }
     );
 
     allowedTools.has("getBuildArtifacts") && server.tool("getBuildArtifacts",
       "List artifacts produced by a build",
       {
+        project: z.string().optional().describe("Azure DevOps project name or ID. Defaults to the configured project."),
         buildId: zId().describe("Build ID"),
       },
       async (params) => {
         const result = await buildTools.getBuildArtifacts(params);
-        return { content: result.content, rawData: result.rawData, structuredContent: result.structuredContent };
+        return { content: result.content, rawData: result.rawData, isError: result.isError, structuredContent: result.structuredContent };
       }
     );
 
     allowedTools.has("getBuildTimeline") && server.tool("getBuildTimeline",
       "Get build timeline showing stages, jobs, and tasks with their status",
       {
+        project: z.string().optional().describe("Azure DevOps project name or ID. Defaults to the configured project."),
         buildId: zId().describe("Build ID"),
       },
       async (params) => {
         const result = await buildTools.getBuildTimeline(params);
-        return { content: result.content, rawData: result.rawData, structuredContent: result.structuredContent };
+        return { content: result.content, rawData: result.rawData, isError: result.isError, structuredContent: result.structuredContent };
       }
     );
 
     allowedTools.has("getBuildWorkItems") && server.tool("getBuildWorkItems",
       "Get work items associated with a build",
       {
+        project: z.string().optional().describe("Azure DevOps project name or ID. Defaults to the configured project."),
         buildId: zId().describe("Build ID"),
         top: z.coerce.number().optional().describe("Maximum number of work items to return (default 50)"),
       },
       async (params) => {
         const result = await buildTools.getBuildWorkItems(params);
-        return { content: result.content, rawData: result.rawData, structuredContent: result.structuredContent };
+        return { content: result.content, rawData: result.rawData, isError: result.isError, structuredContent: result.structuredContent };
+      }
+    );
+
+    allowedTools.has("getPullRequestBuilds") && server.tool("getPullRequestBuilds",
+      "Get builds associated with a pull request. Extracts build IDs from PR policy evaluations and returns build details with optional timeline and log metadata. Use this to find build IDs for a PR, then use getBuildLog to read specific log content.",
+      {
+        project: z.string().optional().describe("Azure DevOps project name or ID. Defaults to the configured project."),
+        repository: z.string().describe("Repository name or ID containing the pull request"),
+        pullRequestId: zId().describe("The pull request ID"),
+        includeTimeline: z.boolean().optional().describe("Include build timeline (stages, jobs, tasks) for each build. Useful for seeing which stages/tasks failed."),
+        includeLogs: z.boolean().optional().describe("Include log metadata (log IDs and line counts) for each build. Use the log IDs with getBuildLog to read actual log content."),
+      },
+      async (params) => {
+        const result = await buildTools.getPullRequestBuilds(params);
+        return { content: result.content, rawData: result.rawData, isError: result.isError, structuredContent: result.structuredContent };
       }
     );
 

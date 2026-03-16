@@ -151,4 +151,4 @@ export class WikiTools {
   }
 }
 
-export const WikiToolMethods = getClassMethods(WikiTools);
+export const WikiToolMethods = getClassMethods(WikiTools.prototype);

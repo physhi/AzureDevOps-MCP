@@ -829,7 +829,7 @@ export class GitTools {
             author: comment.author?.displayName || comment.author?.uniqueName,
             content: comment.content,
             publishedDate: comment.publishedDate,
-            isReply: comment.parentCommentId > 0,
+            isReply: (comment.parentCommentId ?? 0) > 0,
             likesCount: comment.usersLiked?.length || 0
           }))
         })),

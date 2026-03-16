@@ -13,6 +13,7 @@ import {
   ListBuildArtifactsParams,
   GetBuildTimelineParams,
   GetBuildWorkItemsParams,
+  GetPullRequestBuildsParams,
 } from '../Interfaces/Pipelines';
 
 export class BuildService extends AzureDevOpsService {
@@ -199,6 +200,126 @@ export class BuildService extends AzureDevOpsService {
     const project = params.project || this.config.project;
     const refs = await buildApi.getBuildWorkItemsRefs(project, params.buildId, params.top || 50);
     return refs || [];
+  }
+
+  /**
+   * Get builds associated with a pull request via policy evaluations.
+   * Extracts build IDs from build validation policies and fetches build details.
+   */
+  public async getPullRequestBuilds(params: GetPullRequestBuildsParams): Promise<any> {
+    const buildApi = await this.getBuildApi();
+    const project = params.project || this.config.project;
+
+    // Get policy evaluations to find build IDs
+    const policyApi = await this.connection.getPolicyApi();
+    const coreApi = await this.connection.getCoreApi();
+    const projectDetails = await coreApi.getProject(project);
+    const projectId = projectDetails?.id;
+    if (!projectId) {
+      throw new Error(`Could not resolve project ID for "${project}"`);
+    }
+
+    const artifactId = `vstfs:///CodeReview/CodeReviewId/${projectId}%2F${params.pullRequestId}`;
+    const evaluations = await policyApi.getPolicyEvaluations(project, artifactId);
+
+    // Extract build IDs from build validation policy evaluations
+    const buildInfos: Array<{ buildId: number; definitionName: string; status: string | undefined }> = [];
+    for (const evaluation of (evaluations || [])) {
+      const config = evaluation.configuration;
+      if (!config?.type?.id) continue;
+
+      // Build validation policy type ID: 0609b952-1397-4640-95ec-e00a01b2c241
+      const policyTypeId = config.type.id;
+      if (policyTypeId !== '0609b952-1397-4640-95ec-e00a01b2c241') continue;
+
+      const settings = config.settings;
+      if (!settings) continue;
+
+      const buildDefinitionId = settings.buildDefinitionId;
+      const displayName = settings.displayName || config.type.displayName || `Definition ${buildDefinitionId}`;
+
+      // The most recent build ID is in the evaluation context
+      const context = evaluation.context as any;
+      const buildId = context?.buildId;
+
+      if (buildId) {
+        buildInfos.push({
+          buildId,
+          definitionName: displayName,
+          status: String(evaluation.status ?? 'unknown'),
+        });
+      } else if (buildDefinitionId) {
+        // No build yet — find most recent build for this definition on the PR branch
+        try {
+          const gitApi = await this.connection.getGitApi();
+          const repositoryId = await this.resolveRepositoryId(params.repository, project);
+          const pr = await gitApi.getPullRequest(repositoryId, params.pullRequestId, project);
+          const branchName = pr.sourceRefName;
+          if (branchName) {
+            const builds = await buildApi.getBuilds(
+              project,
+              [buildDefinitionId],
+              undefined, undefined, undefined, undefined, undefined, undefined,
+              undefined, undefined, undefined, undefined,
+              1, // top=1, most recent
+              undefined, undefined, undefined,
+              BuildQueryOrder.StartTimeDescending,
+              branchName,
+            );
+            if (builds && builds.length > 0) {
+              buildInfos.push({
+                buildId: builds[0].id!,
+                definitionName: displayName,
+                status: String(evaluation.status ?? 'unknown'),
+              });
+            }
+          }
+        } catch {
+          // Skip if we can't find the build
+        }
+      }
+    }
+
+    // Fetch build details and optionally timeline for each build (parallel)
+    const builds = await Promise.all(buildInfos.map(async (info) => {
+      try {
+        const build = await buildApi.getBuild(project, info.buildId);
+        const buildResult: any = {
+          ...build,
+          policyDefinitionName: info.definitionName,
+          policyStatus: info.status,
+        };
+
+        if (params.includeTimeline) {
+          try {
+            const timeline = await buildApi.getBuildTimeline(project, info.buildId);
+            buildResult.timeline = timeline;
+          } catch {
+            buildResult.timeline = null;
+          }
+        }
+
+        if (params.includeLogs) {
+          try {
+            const logs = await buildApi.getBuildLogs(project, info.buildId);
+            buildResult.logMetadata = logs;
+          } catch {
+            buildResult.logMetadata = null;
+          }
+        }
+
+        return buildResult;
+      } catch (error) {
+        return {
+          buildId: info.buildId,
+          policyDefinitionName: info.definitionName,
+          policyStatus: info.status,
+          error: `Failed to fetch build details: ${error}`,
+        };
+      }
+    }));
+
+    return { builds, totalPolicyBuilds: buildInfos.length };
   }
 
   private parseBuildStatus(status: string): BuildStatus | undefined {
