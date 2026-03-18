@@ -192,6 +192,7 @@ export interface AddPullRequestInlineCommentParams {
   repository: string;
   pullRequestId: number;
   comment: string;
+  format?: 'markdown' | 'html';
   position: {
     line: number;
     offset: number;
@@ -209,6 +210,7 @@ export interface AddPullRequestFileCommentParams {
   pullRequestId: number;
   path: string;
   comment: string;
+  format?: 'markdown' | 'html';
 }
 
 /**
@@ -218,6 +220,7 @@ export interface AddPullRequestCommentParams {
   repository: string;
   pullRequestId: number;
   comment: string;
+  format?: 'markdown' | 'html';
 }
 
 /**
@@ -282,6 +285,7 @@ export interface ReplyToCommentParams {
   pullRequestId: number;
   threadId: number;
   comment: string;
+  format?: 'markdown' | 'html';
 }
 
 /**

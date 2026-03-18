@@ -91,6 +91,22 @@ export function markdownToHtml(text: string): string {
   return marked.parse(text, { async: false }) as string;
 }
 
+// ── HTML Entity Helpers ──────────────────────────────────────────
+
+/**
+ * Unescape HTML entities in markdown text so that characters like ", >, <
+ * render correctly instead of appearing as &quot;, &gt;, &lt; literals.
+ */
+export function unescapeHtmlEntities(text: string): string {
+  return text
+    .replace(/&quot;/g, '"')
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&#39;/g, "'")
+    .replace(/&apos;/g, "'");
+}
+
 // ── Effort Formatting ────────────────────────────────────────────
 
 export function formatEffort(hours: number | null | undefined): string {

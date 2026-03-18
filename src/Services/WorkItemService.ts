@@ -26,7 +26,7 @@ import {
   AddChildWorkItemParams,
   UnlinkWorkItemParams,
 } from '../Interfaces/WorkItems';
-import { markdownToHtml } from '../utils/formatHelpers';
+import { markdownToHtml, unescapeHtmlEntities } from '../utils/formatHelpers';
 
 /** Rich-text fields that expect HTML — markdown is auto-converted for these */
 const RICH_TEXT_FIELDS = new Set([
@@ -581,19 +581,6 @@ export class WorkItemService extends AzureDevOpsService {
     }
   }
 
-  /**
-   * Unescape HTML entities in markdown text so that characters like ", >, <
-   * render correctly instead of appearing as &quot;, &gt;, &lt; literals.
-   */
-  private unescapeHtmlEntities(text: string): string {
-    return text
-      .replace(/&quot;/g, '"')
-      .replace(/&amp;/g, '&')
-      .replace(/&lt;/g, '<')
-      .replace(/&gt;/g, '>')
-      .replace(/&#39;/g, "'")
-      .replace(/&apos;/g, "'");
-  }
 
   /**
    * Add a comment to a work item.
@@ -602,7 +589,7 @@ export class WorkItemService extends AzureDevOpsService {
   public async addWorkItemComment(params: AddWorkItemCommentParams): Promise<any> {
     try {
       const format = params.format === 'html' ? 'html' : 'markdown';
-      const text = format === 'markdown' ? this.unescapeHtmlEntities(params.text) : params.text;
+      const text = format === 'markdown' ? unescapeHtmlEntities(params.text) : params.text;
 
       // Sanitise inputs before URL interpolation (SDK calls handle this internally, but this is a raw REST call)
       const id = Math.floor(Number(params.id));
@@ -632,7 +619,7 @@ export class WorkItemService extends AzureDevOpsService {
   public async updateWorkItemComment(params: { id: number; commentId: number; text: string; format?: 'markdown' | 'html' }): Promise<any> {
     try {
       const format = params.format === 'html' ? 'html' : 'markdown';
-      const text = format === 'markdown' ? this.unescapeHtmlEntities(params.text) : params.text;
+      const text = format === 'markdown' ? unescapeHtmlEntities(params.text) : params.text;
 
       const id = Math.floor(Number(params.id));
       if (!Number.isSafeInteger(id) || id <= 0) throw new Error(`Invalid work item ID: ${params.id}`);

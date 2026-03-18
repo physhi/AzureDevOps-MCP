@@ -5,6 +5,7 @@ import { VersionControlChangeType } from 'azure-devops-node-api/interfaces/GitIn
 import { AzureDevOpsConfig } from '../Interfaces/AzureDevOps';
 import { AzureDevOpsService } from './AzureDevOpsService';
 import { isRepositoryId, isRepositoryName } from '../utils/repositoryResolver';
+import { unescapeHtmlEntities } from '../utils/formatHelpers';
 import {
   ListRepositoriesParams,
   GetRepositoryParams,
@@ -1194,9 +1195,11 @@ Note: You can only add inline comments to files that have been modified in the P
       }
 
       // Create a thread with proper context for the comment
+      const format = params.format === 'html' ? 'html' : 'markdown';
+      const content = format === 'markdown' ? unescapeHtmlEntities(params.comment) : params.comment;
       const thread = {
         comments: [{
-          content: params.comment,
+          content,
           parentCommentId: 0,
           commentType: 1 // 1 = text
         }],
@@ -1268,9 +1271,11 @@ Original error: ${errorMessage}`);
       const gitApi = await this.getGitApi();
       
       // Create a thread with proper context for a file-level comment
+      const format = params.format === 'html' ? 'html' : 'markdown';
+      const content = format === 'markdown' ? unescapeHtmlEntities(params.comment) : params.comment;
       const thread = {
         comments: [{
-          content: params.comment,
+          content,
           parentCommentId: 0,
           commentType: 1 // 1 = text
         }],
@@ -1307,9 +1312,11 @@ Original error: ${errorMessage}`);
       const gitApi = await this.getGitApi();
       
       // Create a thread for a general PR comment (no file context)
+      const format = params.format === 'html' ? 'html' : 'markdown';
+      const content = format === 'markdown' ? unescapeHtmlEntities(params.comment) : params.comment;
       const thread = {
         comments: [{
-          content: params.comment,
+          content,
           parentCommentId: 0,
           commentType: 1 // 1 = text
         }],
@@ -1861,8 +1868,10 @@ Original error: ${errorMessage}`);
     const gitApi = await this.getGitApi();
     const repositoryId = await this.resolveRepositoryId(params.repository);
 
+    const format = params.format === 'html' ? 'html' : 'markdown';
+    const commentContent = format === 'markdown' ? unescapeHtmlEntities(params.comment) : params.comment;
     const comment = {
-      content: params.comment,
+      content: commentContent,
       parentCommentId: 0, // 0 = reply to thread
       commentType: 1, // text comment
     };

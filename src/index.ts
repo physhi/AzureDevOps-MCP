@@ -1041,7 +1041,8 @@ async function main() {
           endLine: z.coerce.number().optional().describe("Optional 1-based end line number for multi-line range comments. If omitted, the comment targets a single line."),
           endOffset: z.coerce.number().optional().describe("Optional character offset within the end line. Required when endLine is provided. Typically use 1 for end of selection.")
         }).describe("The position within the file where the comment will be anchored. Use line/offset for single-line comments, add endLine/endOffset for multi-line range comments."),
-        path: z.string().describe("The full path to the file within the repository that the comment relates to. Must be a file changed in the PR (e.g., '/src/Services/UserService.cs').")
+        path: z.string().describe("The full path to the file within the repository that the comment relates to. Must be a file changed in the PR (e.g., '/src/Services/UserService.cs')."),
+        format: z.enum(['markdown', 'html']).optional().describe("Content format: 'markdown' (default) or 'html'. When markdown, HTML entities are unescaped for correct rendering.")
       },
       async (params, extra) => {
         const result = await gitTools.addPullRequestInlineComment(params);
@@ -1059,7 +1060,8 @@ async function main() {
         repository: z.string().describe("The repository name (e.g., 'MyProject') or ID (GUID) containing the pull request. Repository names are case-insensitive."),
         pullRequestId: zId().describe("The numeric ID of the pull request where the comment will be added. This is the PR number shown in the Azure DevOps UI."),
         path: z.string().describe("The full path to the file within the repository that the comment relates to. Must be a file changed in the PR (e.g., '/src/Models/User.cs')."),
-        comment: z.string().describe("The text content of the comment about the entire file. Can include markdown formatting. Should address file-level concerns, not specific lines.")
+        comment: z.string().describe("The text content of the comment about the entire file. Can include markdown formatting. Should address file-level concerns, not specific lines."),
+        format: z.enum(['markdown', 'html']).optional().describe("Content format: 'markdown' (default) or 'html'. When markdown, HTML entities are unescaped for correct rendering.")
       },
       async (params, extra) => {
         const result = await gitTools.addPullRequestFileComment(params);
@@ -1076,7 +1078,8 @@ async function main() {
       {
         repository: z.string().describe("The repository name (e.g., 'MyProject') or ID (GUID) containing the pull request. Repository names are case-insensitive."),
         pullRequestId: zId().describe("The numeric ID of the pull request where the comment will be added. This is the PR number shown in the Azure DevOps UI."),
-        comment: z.string().describe("The text content of the general comment about the PR. Can include markdown formatting for rich text, code blocks, links, etc. Should address PR-level concerns, not specific files or lines.")
+        comment: z.string().describe("The text content of the general comment about the PR. Can include markdown formatting for rich text, code blocks, links, etc. Should address PR-level concerns, not specific files or lines."),
+        format: z.enum(['markdown', 'html']).optional().describe("Content format: 'markdown' (default) or 'html'. When markdown, HTML entities are unescaped for correct rendering.")
       },
       async (params, extra) => {
         const result = await gitTools.addPullRequestComment(params);
@@ -1183,6 +1186,7 @@ async function main() {
         pullRequestId: zId().describe("Pull request ID"),
         threadId: zId().describe("Thread ID to reply to"),
         comment: z.string().describe("Reply text content (supports markdown)"),
+        format: z.enum(['markdown', 'html']).optional().describe("Content format: 'markdown' (default) or 'html'. When markdown, HTML entities are unescaped for correct rendering."),
       },
       async (params) => {
         const result = await gitTools.replyToComment(params);
