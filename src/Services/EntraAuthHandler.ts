@@ -71,6 +71,25 @@ function saveAuthRecord(label: string, record: AuthenticationRecord): void {
   }
 }
 
+/** Persist the bearer token to a shared file so external scripts/skills can use it. */
+function saveAccessToken(label: string, token: AccessToken): void {
+  try {
+    const dir = getAuthRecordDir();
+    if (!fs.existsSync(dir)) {
+      fs.mkdirSync(dir, { recursive: true });
+    }
+    const tokenPath = path.join(dir, `access-token-${label}.json`);
+    fs.writeFileSync(tokenPath, JSON.stringify({
+      accessToken: token.token,
+      expiresOnTimestamp: token.expiresOnTimestamp,
+      orgUrl: process.env.AZURE_DEVOPS_ORG_URL || "",
+      project: process.env.AZURE_DEVOPS_PROJECT || "",
+    }), "utf-8");
+  } catch (err) {
+    console.error(`[Auth] Failed to save access token for "${label}":`, err);
+  }
+}
+
 function deleteAuthRecord(label: string): void {
   try {
     const filePath = getAuthRecordPath(label);
@@ -117,6 +136,7 @@ export class TokenCredentialAuthHandler implements IRequestHandler {
   public static async createAzureCli(tenantId?: string): Promise<TokenCredentialAuthHandler> {
     const credential = new AzureCliCredential(tenantId ? { tenantId } : undefined);
     const handler = new TokenCredentialAuthHandler(credential);
+    handler.authRecordLabel = orgUrlToLabel();
     await handler.ensureToken();
     handler.startProactiveRefresh();
     return handler;
@@ -169,6 +189,7 @@ export class TokenCredentialAuthHandler implements IRequestHandler {
           handler.credentialOptions = credentialOptions;
           handler.token = token;
           handler.authHandler = azdev.getHandlerFromToken(token.token);
+          saveAccessToken(label, token);
           handler.startProactiveRefresh();
           return handler;
         }
@@ -207,6 +228,7 @@ export class TokenCredentialAuthHandler implements IRequestHandler {
         if (!token) throw new Error("getToken returned null");
         this.token = token;
         this.authHandler = azdev.getHandlerFromToken(this.token.token);
+        if (this.authRecordLabel) saveAccessToken(this.authRecordLabel, token);
       } catch (err) {
         // Self-heal: rebuild credential from saved auth record (same as a restart).
         if (this.authRecordLabel && this.credentialOptions) {
@@ -223,6 +245,7 @@ export class TokenCredentialAuthHandler implements IRequestHandler {
               this.credential = freshCredential;
               this.token = token;
               this.authHandler = azdev.getHandlerFromToken(token.token);
+              saveAccessToken(this.authRecordLabel, token);
               return;
             }
           }

@@ -89,6 +89,7 @@ export interface ListPullRequestsParams {
   repository: string;
   status?: 'abandoned' | 'active' | 'all' | 'completed' | 'notSet';
   creatorId?: string;
+  creatorIds?: string[];
   reviewerId?: string;
   top?: number;
   skip?: number;
@@ -164,6 +165,7 @@ export interface GetPullRequestsParams {
   repository: string;
   status?: 'abandoned' | 'active' | 'all' | 'completed' | 'notSet';
   creatorId?: string;
+  creatorIds?: string[];
   reviewerId?: string;
   sourceRefName?: string;
   targetRefName?: string;

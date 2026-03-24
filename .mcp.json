@@ -36,8 +36,8 @@
             "env": {
                 "AZURE_DEVOPS_ORG_URL": "https://mcqdbdev.visualstudio.com/",
                 "AZURE_DEVOPS_PROJECT": "MCQdb_Development",
-                "AZURE_DEVOPS_IS_ON_PREMISES": "false",
-                "ALLOWED_TOOLS": "listPullRequests,getPullRequest,getPullRequestComments,approvePullRequest,mergePullRequest,addPullRequestInlineComment,addPullRequestFileComment,addPullRequestComment,getPullRequestFileChanges,getPullRequestChangesCount,getAllPullRequestChanges,getFileContent,browseRepository,getCommitHistory,azureDevOpsWorkItems,addWorkItemComment,assignWorkItem,bulkCreateWorkItems,convertFindingsToWorkItems,createArea,createIteration,createWorkItem,getCurrentSprint,getIterations,getSprints,getSprintWorkItems,getTeamMembers,getTeams,getWorkItemById,getWorkItemTypeFields,getWorkItemTypes,listWorkItems,searchWorkItems,updateWorkItem,updateWorkItemState,listRepositories,getBuilds,getBuild,getBuildLog,getBuildChanges,getDefinitions,getDefinition,runPipeline,getBuildArtifacts,getBuildTimeline,getBuildWorkItems,updatePullRequest,updatePullRequestReviewers,replyToComment,updatePullRequestThread,createBranch,getWorkItemsBatch,getWorkItemRevisions,getQueryResults,addChildWorkItem,unlinkWorkItem,listWikis,getWiki,listWikiPages,getWikiPageContent,createOrUpdateWikiPage"
+                "AZURE_DEVOPS_IS_ON_PREMISES": "false"
+
             }
         }
     }

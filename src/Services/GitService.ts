@@ -5,7 +5,7 @@ import { VersionControlChangeType } from 'azure-devops-node-api/interfaces/GitIn
 import { AzureDevOpsConfig } from '../Interfaces/AzureDevOps';
 import { AzureDevOpsService } from './AzureDevOpsService';
 import { isRepositoryId, isRepositoryName } from '../utils/repositoryResolver';
-import { unescapeHtmlEntities } from '../utils/formatHelpers';
+import { unescapeHtmlEntities, normalizeLiteralEscapes } from '../utils/formatHelpers';
 import {
   ListRepositoriesParams,
   GetRepositoryParams,
@@ -1195,8 +1195,11 @@ Note: You can only add inline comments to files that have been modified in the P
       }
 
       // Create a thread with proper context for the comment
-      const format = params.format === 'html' ? 'html' : 'markdown';
-      const content = format === 'markdown' ? unescapeHtmlEntities(params.comment) : params.comment;
+      // PR comments are markdown-native (client-side rendered, no server-side format param).
+      // Normalise literal \n escapes that LLMs sometimes double-escape in tool-call JSON.
+      const content = params.format === 'html'
+        ? params.comment
+        : normalizeLiteralEscapes(unescapeHtmlEntities(params.comment));
       const thread = {
         comments: [{
           content,
@@ -1271,8 +1274,10 @@ Original error: ${errorMessage}`);
       const gitApi = await this.getGitApi();
       
       // Create a thread with proper context for a file-level comment
-      const format = params.format === 'html' ? 'html' : 'markdown';
-      const content = format === 'markdown' ? unescapeHtmlEntities(params.comment) : params.comment;
+      // PR comments are markdown-native — normalise literal \n escapes from LLM tool calls.
+      const content = params.format === 'html'
+        ? params.comment
+        : normalizeLiteralEscapes(unescapeHtmlEntities(params.comment));
       const thread = {
         comments: [{
           content,
@@ -1312,8 +1317,10 @@ Original error: ${errorMessage}`);
       const gitApi = await this.getGitApi();
       
       // Create a thread for a general PR comment (no file context)
-      const format = params.format === 'html' ? 'html' : 'markdown';
-      const content = format === 'markdown' ? unescapeHtmlEntities(params.comment) : params.comment;
+      // PR comments are markdown-native — normalise literal \n escapes from LLM tool calls.
+      const content = params.format === 'html'
+        ? params.comment
+        : normalizeLiteralEscapes(unescapeHtmlEntities(params.comment));
       const thread = {
         comments: [{
           content,
@@ -1868,8 +1875,10 @@ Original error: ${errorMessage}`);
     const gitApi = await this.getGitApi();
     const repositoryId = await this.resolveRepositoryId(params.repository);
 
-    const format = params.format === 'html' ? 'html' : 'markdown';
-    const commentContent = format === 'markdown' ? unescapeHtmlEntities(params.comment) : params.comment;
+    // PR comments are markdown-native — normalise literal \n escapes from LLM tool calls.
+    const commentContent = params.format === 'html'
+      ? params.comment
+      : normalizeLiteralEscapes(unescapeHtmlEntities(params.comment));
     const comment = {
       content: commentContent,
       parentCommentId: 0, // 0 = reply to thread

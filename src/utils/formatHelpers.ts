@@ -107,6 +107,26 @@ export function unescapeHtmlEntities(text: string): string {
     .replace(/&apos;/g, "'");
 }
 
+// ── Literal Escape Normalization ────────────────────────────────
+
+/**
+ * Normalize literal escape sequences (e.g. backslash-n) into real characters.
+ *
+ * LLMs sometimes double-escape newlines in MCP tool-call JSON, producing
+ * literal `\n` text instead of actual newline characters.  Applied to both
+ * PR comments (client-side rendered) and work-item comments (server-side
+ * rendered via `?format=markdown`) for consistent behaviour.
+ *
+ * Limitation: cannot distinguish LLM double-escaping from intentional literal
+ * `\n` inside fenced code blocks — both are backslash-n in the JS string.
+ * The common case (LLM double-escaping) is far more frequent.
+ */
+export function normalizeLiteralEscapes(text: string): string {
+  return text
+    .replace(/\\n/g, '\n')
+    .replace(/\\t/g, '\t');
+}
+
 // ── Effort Formatting ────────────────────────────────────────────
 
 export function formatEffort(hours: number | null | undefined): string {

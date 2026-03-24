@@ -237,7 +237,7 @@ async function main() {
       "Add a comment to a work item. Supports markdown formatting by default. Use #ID to reference work items, @user to mention people.",
       {
         id: zId().describe("ID of the work item"),
-        text: z.string().describe("Comment text (markdown). Use #ID to link work items, @user to mention people"),
+        text: z.string().describe("Comment text. Supports full markdown — use #ID to link work items, @user to mention people. IMPORTANT: Use actual newline characters in the JSON string for line breaks — do NOT send literal backslash-n text."),
         format: z.enum(['markdown', 'html']).optional().default('markdown').describe("Comment format: 'markdown' (default) or 'html'")
       },
       async (params, extra) => {
@@ -256,7 +256,7 @@ async function main() {
       {
         action: z.enum(['add', 'update']).describe("'add' for new comment, 'update' to edit existing"),
         id: zId().describe("Work item ID"),
-        text: z.string().describe("Comment text (supports markdown by default)"),
+        text: z.string().describe("Comment text. Supports full markdown. IMPORTANT: Use actual newline characters in the JSON string for line breaks — do NOT send literal backslash-n text."),
         format: z.enum(['markdown', 'html']).optional().default('markdown').describe("Comment format"),
         commentId: zIdOptional().describe("Comment ID — required for 'update' action"),
       },
@@ -909,11 +909,12 @@ async function main() {
     );
     
     allowedTools.has("listPullRequests") && server.tool("listPullRequests",
-      "Retrieve a list of pull requests in a Git repository with comprehensive filtering options. Returns a concise table with PR details including ID, title, author, status, and branches, along with a summary of PRs by status. Filter by status, creator, or reviewer to find specific PRs. Supports both repository names and IDs.",
+      "Retrieve a list of pull requests in a Git repository with comprehensive filtering options. Returns a concise table with PR details including ID, title, author, status, and branches, along with a summary of PRs by status. Filter by status, creator, or reviewer to find specific PRs. Supports both repository names and IDs. By default only active (open) PRs are returned.",
       {
         repository: z.string().describe("The repository name (e.g., 'MyProject') or ID (GUID) to list pull requests from. Repository names are case-insensitive."),
-        status: z.enum(['abandoned', 'active', 'all', 'completed', 'notSet']).optional().describe("Filter pull requests by their current status: 'active' for open PRs, 'completed' for merged PRs, 'abandoned' for closed/rejected PRs, 'all' for all PRs regardless of status."),
-        creatorId: z.string().optional().describe("Filter pull requests to only those created by a specific user ID or email address."),
+        status: z.enum(['abandoned', 'active', 'all', 'completed', 'notSet']).optional().describe("Filter pull requests by their current status. Defaults to 'active' (open PRs). Use 'completed' for merged PRs, 'abandoned' for closed/rejected PRs, 'all' for all PRs regardless of status."),
+        creatorId: z.string().optional().describe("Filter pull requests to only those created by a specific user ID or email address. Use 'creatorIds' for multiple developers."),
+        creatorIds: z.array(z.string()).optional().describe("Filter pull requests to those created by any of the specified user IDs or email addresses. Example: ['user1@example.com', 'user2@example.com']"),
         reviewerId: z.string().optional().describe("Filter pull requests to only those where a specific user ID or email address has been assigned as a reviewer."),
         top: z.coerce.number().optional().describe("Maximum number of pull requests to return in the response. Use this for pagination to handle repositories with many PRs."),
         skip: z.coerce.number().optional().describe("Number of pull requests to skip before starting to return results. Use with 'top' for implementing pagination.")
@@ -1034,7 +1035,7 @@ async function main() {
       {
         repository: z.string().describe("The repository name (e.g., 'MyProject') or ID (GUID) containing the pull request. Repository names are case-insensitive."),
         pullRequestId: zId().describe("The numeric ID of the pull request where the comment will be added. This is the PR number shown in the Azure DevOps UI."),
-        comment: z.string().describe("The text content of the comment to add. Can include markdown formatting. Should be specific to the line of code being commented on."),
+        comment: z.string().describe("The text content of the comment. Supports full markdown (headers, lists, code blocks, bold, etc.). IMPORTANT: Use actual newline characters in the JSON string for line breaks — do NOT send literal backslash-n text. Example: \"## Issue\\n\\nMissing null check\" where \\n is a real JSON newline escape."),
         position: z.object({
           line: z.coerce.number().describe("The 1-based line number in the file where the comment starts. Must be a line visible in the PR diff (added, removed, or context line)."),
           offset: z.coerce.number().describe("The character offset within the start line. Typically use 1 for beginning of line."),
@@ -1060,7 +1061,7 @@ async function main() {
         repository: z.string().describe("The repository name (e.g., 'MyProject') or ID (GUID) containing the pull request. Repository names are case-insensitive."),
         pullRequestId: zId().describe("The numeric ID of the pull request where the comment will be added. This is the PR number shown in the Azure DevOps UI."),
         path: z.string().describe("The full path to the file within the repository that the comment relates to. Must be a file changed in the PR (e.g., '/src/Models/User.cs')."),
-        comment: z.string().describe("The text content of the comment about the entire file. Can include markdown formatting. Should address file-level concerns, not specific lines."),
+        comment: z.string().describe("The text content of the comment about the entire file. Supports full markdown (headers, lists, code blocks, bold, etc.). IMPORTANT: Use actual newline characters in the JSON string for line breaks — do NOT send literal backslash-n text. Example: \"## Summary\\n\\nThis file needs refactoring\" where \\n is a real JSON newline escape."),
         format: z.enum(['markdown', 'html']).optional().describe("Content format: 'markdown' (default) or 'html'. When markdown, HTML entities are unescaped for correct rendering.")
       },
       async (params, extra) => {
@@ -1078,7 +1079,7 @@ async function main() {
       {
         repository: z.string().describe("The repository name (e.g., 'MyProject') or ID (GUID) containing the pull request. Repository names are case-insensitive."),
         pullRequestId: zId().describe("The numeric ID of the pull request where the comment will be added. This is the PR number shown in the Azure DevOps UI."),
-        comment: z.string().describe("The text content of the general comment about the PR. Can include markdown formatting for rich text, code blocks, links, etc. Should address PR-level concerns, not specific files or lines."),
+        comment: z.string().describe("The text content of the general comment about the PR. Supports full markdown (headers, lists, code blocks, bold, etc.). IMPORTANT: Use actual newline characters in the JSON string for line breaks — do NOT send literal backslash-n text. Example: \"## Review Summary\\n\\n- Looks good\\n- One issue found\" where \\n is a real JSON newline escape."),
         format: z.enum(['markdown', 'html']).optional().describe("Content format: 'markdown' (default) or 'html'. When markdown, HTML entities are unescaped for correct rendering.")
       },
       async (params, extra) => {
@@ -1185,7 +1186,7 @@ async function main() {
         repository: z.string().describe("Repository name or ID"),
         pullRequestId: zId().describe("Pull request ID"),
         threadId: zId().describe("Thread ID to reply to"),
-        comment: z.string().describe("Reply text content (supports markdown)"),
+        comment: z.string().describe("Reply text content. Supports full markdown. IMPORTANT: Use actual newline characters in the JSON string for line breaks — do NOT send literal backslash-n text."),
         format: z.enum(['markdown', 'html']).optional().describe("Content format: 'markdown' (default) or 'html'. When markdown, HTML entities are unescaped for correct rendering."),
       },
       async (params) => {
