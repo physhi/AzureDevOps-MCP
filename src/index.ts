@@ -814,7 +814,8 @@ async function main() {
       {
         repository: z.string().describe("The repository name (e.g., 'MyProject') or ID (GUID) to list branches from. Repository names are case-insensitive."),
         filter: z.string().optional().describe("Optional wildcard pattern to filter branch names (e.g., 'feature/*', 'release/*'). Use this to narrow down results to specific branch types."),
-        top: z.coerce.number().optional().describe("Maximum number of branches to return in the response. Use this to limit large result sets, especially for repositories with many branches.")
+        top: z.coerce.number().optional().describe("Maximum number of branches to return in the response. Use this to limit large result sets, especially for repositories with many branches."),
+        project: z.string().optional().describe("Azure DevOps project name or ID. Defaults to the configured project.")
       },
       async (params, extra) => {
         const result = await gitTools.listBranches(params);
@@ -854,7 +855,8 @@ async function main() {
           version: z.string().optional().describe("The name of the branch (e.g., 'main'), tag, or commit ID to browse. Defaults to the default branch if not specified."),
           versionOptions: z.string().optional().describe("Additional version options: 'None', 'PreviousChange', 'FirstParent'. Usually leave this undefined."),
           versionType: z.string().optional().describe("Type of version: 'Branch', 'Tag', 'Commit'. Usually inferred automatically from the version parameter.")
-        }).optional().describe("Optional specification for which version of the repository to browse. Use this to view files at a specific branch, tag, or commit.")
+        }).optional().describe("Optional specification for which version of the repository to browse. Use this to view files at a specific branch, tag, or commit."),
+        project: z.string().optional().describe("Azure DevOps project name or ID. Defaults to the configured project.")
       },
       async (params, extra) => {
         const result = await gitTools.browseRepository(params);
@@ -877,7 +879,8 @@ async function main() {
           version: z.string().optional().describe("The name of the branch (e.g., 'main'), tag, or commit ID to retrieve the file from. Defaults to the default branch if not specified."),
           versionOptions: z.string().optional().describe("Additional version options: 'None', 'PreviousChange', 'FirstParent'. Usually leave this undefined."),
           versionType: z.string().optional().describe("Type of version: 'Branch', 'Tag', 'Commit'. Usually inferred automatically from the version parameter.")
-        }).optional().describe("Optional specification for which version of the file to retrieve. Use this to view file content at a specific branch, tag, or commit.")
+        }).optional().describe("Optional specification for which version of the file to retrieve. Use this to view file content at a specific branch, tag, or commit."),
+        project: z.string().optional().describe("Azure DevOps project name or ID. Defaults to the configured project.")
       },
       async (params, extra) => {
         const result = await gitTools.getFileContent(params);
@@ -917,7 +920,8 @@ async function main() {
         creatorIds: z.array(z.string()).optional().describe("Filter pull requests to those created by any of the specified user IDs or email addresses. Example: ['user1@example.com', 'user2@example.com']"),
         reviewerId: z.string().optional().describe("Filter pull requests to only those where a specific user ID or email address has been assigned as a reviewer."),
         top: z.coerce.number().optional().describe("Maximum number of pull requests to return in the response. Use this for pagination to handle repositories with many PRs."),
-        skip: z.coerce.number().optional().describe("Number of pull requests to skip before starting to return results. Use with 'top' for implementing pagination.")
+        skip: z.coerce.number().optional().describe("Number of pull requests to skip before starting to return results. Use with 'top' for implementing pagination."),
+        project: z.string().optional().describe("Azure DevOps project name or ID. Defaults to the configured project.")
       },
       async (params, extra) => {
         const result = await gitTools.listPullRequests(params);
@@ -936,7 +940,8 @@ async function main() {
         targetRefName: z.string().describe("The name of the target branch where changes will be merged into, in full reference format (e.g., 'refs/heads/main')."),
         title: z.string().describe("A concise, descriptive title for the pull request that summarizes the changes being proposed."),
         description: z.string().optional().describe("A detailed description of the changes in the pull request. Can include markdown formatting for rich text, lists, code blocks, etc."),
-        reviewers: z.array(z.string()).optional().describe("An array of user IDs or email addresses to assign as reviewers to the pull request. These users will be notified about the PR.")
+        reviewers: z.array(z.string()).optional().describe("An array of user IDs or email addresses to assign as reviewers to the pull request. These users will be notified about the PR."),
+        project: z.string().optional().describe("Azure DevOps project name or ID. Defaults to the configured project.")
       },
       async (params, extra) => {
         const result = await gitTools.createPullRequest(params);
@@ -961,7 +966,8 @@ async function main() {
       {
         repository: z.string().describe("The repository name (e.g., 'MyProject') or ID (GUID) containing the pull request. Repository names are case-insensitive."),
         pullRequestId: zId().describe("The numeric ID of the pull request to retrieve. This is the PR number shown in the Azure DevOps UI (e.g., PR #123)."),
-        include: z.array(z.enum(['policies', 'description', 'reviewers', 'workItems', 'completionOptions', 'files'])).optional().describe("Sections to return in full detail. When omitted, returns compact overview with all sections truncated. Specify sections you need full data for.")
+        include: z.array(z.enum(['policies', 'description', 'reviewers', 'workItems', 'completionOptions', 'files'])).optional().describe("Sections to return in full detail. When omitted, returns compact overview with all sections truncated. Specify sections you need full data for."),
+        project: z.string().optional().describe("Azure DevOps project name or ID. Defaults to the configured project.")
       },
       async (params, extra) => {
         const result = await gitTools.getPullRequest(params);
@@ -982,7 +988,8 @@ async function main() {
         status: z.enum(['active', 'fixed', 'wontFix', 'closed', 'byDesign', 'pending']).optional().describe("Filter threads by status. Use 'active' to see only unresolved threads, 'fixed' for resolved ones, etc."),
         authorName: z.string().optional().describe("Filter threads by author display name or email (case-insensitive partial match). Only threads where the root comment was authored by a matching user are returned."),
         top: z.coerce.number().optional().describe("Maximum number of comment threads to return in the response. Use this for pagination in PRs with many comments."),
-        skip: z.coerce.number().optional().describe("Number of comment threads to skip before starting to return results. Use with 'top' for implementing pagination.")
+        skip: z.coerce.number().optional().describe("Number of comment threads to skip before starting to return results. Use with 'top' for implementing pagination."),
+        project: z.string().optional().describe("Azure DevOps project name or ID. Defaults to the configured project.")
       },
       async (params, extra) => {
         const result = await gitTools.getPullRequestComments(params);
@@ -999,7 +1006,8 @@ async function main() {
       "Cast an 'Approve' vote on a pull request on behalf of the current authenticated user. This marks the PR as approved by the user and contributes toward satisfying approval requirements defined in branch policies. Equivalent to clicking 'Approve' in the Azure DevOps UI. Supports both repository names and IDs.",
       {
         repository: z.string().describe("The repository name (e.g., 'MyProject') or ID (GUID) containing the pull request. Repository names are case-insensitive."),
-        pullRequestId: zId().describe("The numeric ID of the pull request to approve. This is the PR number shown in the Azure DevOps UI (e.g., PR #123).")
+        pullRequestId: zId().describe("The numeric ID of the pull request to approve. This is the PR number shown in the Azure DevOps UI (e.g., PR #123)."),
+        project: z.string().optional().describe("Azure DevOps project name or ID. Defaults to the configured project.")
       },
       async (params, extra) => {
         const result = await gitTools.approvePullRequest(params);
@@ -1017,7 +1025,8 @@ async function main() {
         repository: z.string().describe("The repository name (e.g., 'MyProject') or ID (GUID) containing the pull request. Repository names are case-insensitive."),
         pullRequestId: zId().describe("The numeric ID of the pull request to merge. This is the PR number shown in the Azure DevOps UI (e.g., PR #123)."),
         mergeStrategy: z.enum(['noFastForward', 'rebase', 'rebaseMerge', 'squash']).optional().describe("The strategy to use when merging changes: 'noFastForward' creates a merge commit, 'rebase' updates the source branch commits onto the target branch, 'rebaseMerge' combines rebase with a merge commit, 'squash' combines all changes into a single commit."),
-        comment: z.string().optional().describe("Optional comment to include in the merge commit message. Use this to provide additional context about the merge beyond the default message.")
+        comment: z.string().optional().describe("Optional comment to include in the merge commit message. Use this to provide additional context about the merge beyond the default message."),
+        project: z.string().optional().describe("Azure DevOps project name or ID. Defaults to the configured project.")
       },
       async (params, extra) => {
         const result = await gitTools.mergePullRequest(params);
@@ -1043,7 +1052,8 @@ async function main() {
           endOffset: z.coerce.number().optional().describe("Optional character offset within the end line. Required when endLine is provided. Typically use 1 for end of selection.")
         }).describe("The position within the file where the comment will be anchored. Use line/offset for single-line comments, add endLine/endOffset for multi-line range comments."),
         path: z.string().describe("The full path to the file within the repository that the comment relates to. Must be a file changed in the PR (e.g., '/src/Services/UserService.cs')."),
-        format: z.enum(['markdown', 'html']).optional().describe("Content format: 'markdown' (default) or 'html'. When markdown, HTML entities are unescaped for correct rendering.")
+        format: z.enum(['markdown', 'html']).optional().describe("Content format: 'markdown' (default) or 'html'. When markdown, HTML entities are unescaped for correct rendering."),
+        project: z.string().optional().describe("Azure DevOps project name or ID. Defaults to the configured project.")
       },
       async (params, extra) => {
         const result = await gitTools.addPullRequestInlineComment(params);
@@ -1062,7 +1072,8 @@ async function main() {
         pullRequestId: zId().describe("The numeric ID of the pull request where the comment will be added. This is the PR number shown in the Azure DevOps UI."),
         path: z.string().describe("The full path to the file within the repository that the comment relates to. Must be a file changed in the PR (e.g., '/src/Models/User.cs')."),
         comment: z.string().describe("The text content of the comment about the entire file. Supports full markdown (headers, lists, code blocks, bold, etc.). IMPORTANT: Use actual newline characters in the JSON string for line breaks — do NOT send literal backslash-n text. Example: \"## Summary\\n\\nThis file needs refactoring\" where \\n is a real JSON newline escape."),
-        format: z.enum(['markdown', 'html']).optional().describe("Content format: 'markdown' (default) or 'html'. When markdown, HTML entities are unescaped for correct rendering.")
+        format: z.enum(['markdown', 'html']).optional().describe("Content format: 'markdown' (default) or 'html'. When markdown, HTML entities are unescaped for correct rendering."),
+        project: z.string().optional().describe("Azure DevOps project name or ID. Defaults to the configured project.")
       },
       async (params, extra) => {
         const result = await gitTools.addPullRequestFileComment(params);
@@ -1080,7 +1091,8 @@ async function main() {
         repository: z.string().describe("The repository name (e.g., 'MyProject') or ID (GUID) containing the pull request. Repository names are case-insensitive."),
         pullRequestId: zId().describe("The numeric ID of the pull request where the comment will be added. This is the PR number shown in the Azure DevOps UI."),
         comment: z.string().describe("The text content of the general comment about the PR. Supports full markdown (headers, lists, code blocks, bold, etc.). IMPORTANT: Use actual newline characters in the JSON string for line breaks — do NOT send literal backslash-n text. Example: \"## Review Summary\\n\\n- Looks good\\n- One issue found\" where \\n is a real JSON newline escape."),
-        format: z.enum(['markdown', 'html']).optional().describe("Content format: 'markdown' (default) or 'html'. When markdown, HTML entities are unescaped for correct rendering.")
+        format: z.enum(['markdown', 'html']).optional().describe("Content format: 'markdown' (default) or 'html'. When markdown, HTML entities are unescaped for correct rendering."),
+        project: z.string().optional().describe("Azure DevOps project name or ID. Defaults to the configured project.")
       },
       async (params, extra) => {
         const result = await gitTools.addPullRequestComment(params);
@@ -1098,7 +1110,8 @@ async function main() {
       {
         repository: z.string().describe("The repository name (e.g., 'MyProject') or ID (GUID) containing the pull request. Repository names are case-insensitive."),
         pullRequestId: zId().describe("The numeric ID of the pull request to examine. This is the PR number shown in the Azure DevOps UI."),
-        path: z.string().optional().describe("Optional path to a specific file to return changes for. If omitted, changes for all files will be returned but filtered to match this specific path.")
+        path: z.string().optional().describe("Optional path to a specific file to return changes for. If omitted, changes for all files will be returned but filtered to match this specific path."),
+        project: z.string().optional().describe("Azure DevOps project name or ID. Defaults to the configured project.")
       },
       async (params, extra) => {
         const result = await gitTools.getPullRequestFileChanges(params);
@@ -1114,7 +1127,8 @@ async function main() {
       "Get statistical summary of changes in a pull request, including total count of files changed and breakdowns by change type (added, modified, deleted). Useful for understanding the scope of changes in a PR at a glance.",
       {
         repository: z.string().describe("The repository name (e.g., 'MyProject') or ID (GUID) containing the pull request. Repository names are case-insensitive."),
-        pullRequestId: zId().describe("The numeric ID of the pull request to analyze. This is the PR number shown in the Azure DevOps UI.")
+        pullRequestId: zId().describe("The numeric ID of the pull request to analyze. This is the PR number shown in the Azure DevOps UI."),
+        project: z.string().optional().describe("Azure DevOps project name or ID. Defaults to the configured project.")
       },
       async (params, extra) => {
         const result = await gitTools.getPullRequestChangesCount(params);
@@ -1132,7 +1146,8 @@ async function main() {
         repository: z.string().describe("The repository name (e.g., 'MyProject') or ID (GUID) containing the pull request. Repository names are case-insensitive."),
         pullRequestId: zId().describe("The numeric ID of the pull request to retrieve changes for. This is the PR number shown in the Azure DevOps UI."),
         top: z.coerce.number().optional().describe("Maximum number of change entries to return in a single request. Use this for pagination to avoid large response payloads."),
-        skip: z.coerce.number().optional().describe("Number of change entries to skip before starting to return results. Use with 'top' for implementing pagination.")
+        skip: z.coerce.number().optional().describe("Number of change entries to skip before starting to return results. Use with 'top' for implementing pagination."),
+        project: z.string().optional().describe("Azure DevOps project name or ID. Defaults to the configured project.")
       },
       async (params, extra) => {
         const result = await gitTools.getAllPullRequestChanges(params);
@@ -1158,6 +1173,7 @@ async function main() {
         deleteSourceBranch: z.boolean().optional().describe("Delete source branch on completion"),
         isDraft: z.boolean().optional().describe("Set PR as draft or publish it"),
         targetRefName: z.string().optional().describe("Change target branch (e.g., 'refs/heads/main')"),
+        project: z.string().optional().describe("Azure DevOps project name or ID. Defaults to the configured project."),
       },
       async (params) => {
         const result = await gitTools.updatePullRequest(params);
@@ -1173,6 +1189,7 @@ async function main() {
         reviewersToAdd: z.array(z.string()).optional().describe("User IDs or email addresses to add as reviewers"),
         reviewersToRemove: z.array(z.string()).optional().describe("User IDs or email addresses to remove from reviewers"),
         makeRequired: z.boolean().optional().describe("Make added reviewers required (default false)"),
+        project: z.string().optional().describe("Azure DevOps project name or ID. Defaults to the configured project."),
       },
       async (params) => {
         const result = await gitTools.updatePullRequestReviewers(params);
@@ -1188,6 +1205,7 @@ async function main() {
         threadId: zId().describe("Thread ID to reply to"),
         comment: z.string().describe("Reply text content. Supports full markdown. IMPORTANT: Use actual newline characters in the JSON string for line breaks — do NOT send literal backslash-n text."),
         format: z.enum(['markdown', 'html']).optional().describe("Content format: 'markdown' (default) or 'html'. When markdown, HTML entities are unescaped for correct rendering."),
+        project: z.string().optional().describe("Azure DevOps project name or ID. Defaults to the configured project."),
       },
       async (params) => {
         const result = await gitTools.replyToComment(params);
@@ -1202,6 +1220,7 @@ async function main() {
         pullRequestId: zId().describe("Pull request ID"),
         threadId: zId().describe("Thread ID to update"),
         status: z.enum(['active', 'byDesign', 'closed', 'fixed', 'pending', 'unknown', 'wontFix']).describe("New thread status"),
+        project: z.string().optional().describe("Azure DevOps project name or ID. Defaults to the configured project."),
       },
       async (params) => {
         const result = await gitTools.updatePullRequestThread(params);
@@ -1215,6 +1234,7 @@ async function main() {
         repository: z.string().describe("Repository name or ID"),
         branchName: z.string().describe("New branch name (e.g., 'feature/my-feature')"),
         sourceRef: z.string().describe("Source branch name (e.g., 'main') or commit SHA to branch from"),
+        project: z.string().optional().describe("Azure DevOps project name or ID. Defaults to the configured project."),
       },
       async (params) => {
         const result = await gitTools.createBranch(params);

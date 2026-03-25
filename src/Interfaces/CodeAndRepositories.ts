@@ -30,6 +30,7 @@ export interface ListBranchesParams {
   repository: string;
   filter?: string;
   top?: number;
+  project?: string;
 }
 
 /**
@@ -54,6 +55,7 @@ export interface BrowseRepositoryParams {
     versionOptions?: string;
     versionType?: string;
   };
+  project?: string;
 }
 
 /**
@@ -69,6 +71,7 @@ export interface GetFileContentParams {
     versionOptions?: string;
     versionType?: string;
   };
+  project?: string;
 }
 
 /**
@@ -93,6 +96,7 @@ export interface ListPullRequestsParams {
   reviewerId?: string;
   top?: number;
   skip?: number;
+  project?: string;
 }
 
 /**
@@ -105,6 +109,7 @@ export interface CreatePullRequestParams {
   title: string;
   description?: string;
   reviewers?: string[];
+  project?: string;
 }
 
 /**
@@ -114,6 +119,7 @@ export interface GetPullRequestParams {
   repository: string;
   pullRequestId: number;
   include?: ('policies' | 'description' | 'reviewers' | 'workItems' | 'completionOptions' | 'files')[];
+  project?: string;
 }
 
 /**
@@ -127,6 +133,7 @@ export interface GetPullRequestCommentsParams {
   authorName?: string;
   top?: number;
   skip?: number;
+  project?: string;
 }
 
 /**
@@ -135,6 +142,7 @@ export interface GetPullRequestCommentsParams {
 export interface ApprovePullRequestParams {
   repository: string;
   pullRequestId: number;
+  project?: string;
 }
 
 /**
@@ -145,6 +153,7 @@ export interface MergePullRequestParams {
   pullRequestId: number;
   mergeStrategy?: 'noFastForward' | 'rebase' | 'rebaseMerge' | 'squash';
   comment?: string;
+  project?: string;
 }
 
 /**
@@ -170,6 +179,7 @@ export interface GetPullRequestsParams {
   sourceRefName?: string;
   targetRefName?: string;
   projectId?: string;
+  project?: string;
   skip?: number;
   top?: number;
 }
@@ -185,6 +195,7 @@ export interface CompletePullRequestParams {
   deleteSourceBranch?: boolean;
   comment?: string;
   projectId?: string;
+  project?: string;
 }
 
 /**
@@ -202,6 +213,7 @@ export interface AddPullRequestInlineCommentParams {
     endOffset?: number;
   };
   path: string;
+  project?: string;
 }
 
 /**
@@ -213,6 +225,7 @@ export interface AddPullRequestFileCommentParams {
   path: string;
   comment: string;
   format?: 'markdown' | 'html';
+  project?: string;
 }
 
 /**
@@ -223,6 +236,7 @@ export interface AddPullRequestCommentParams {
   pullRequestId: number;
   comment: string;
   format?: 'markdown' | 'html';
+  project?: string;
 }
 
 /**
@@ -232,6 +246,7 @@ export interface GetPullRequestFileChangesParams {
   repository: string;
   pullRequestId: number;
   path?: string;
+  project?: string;
 }
 
 /**
@@ -240,6 +255,7 @@ export interface GetPullRequestFileChangesParams {
 export interface GetPullRequestChangesCountParams {
   repository: string;
   pullRequestId: number;
+  project?: string;
 }
 
 /**
@@ -250,6 +266,7 @@ export interface GetAllPullRequestChangesParams {
   pullRequestId: number;
   top?: number;
   skip?: number;
+  project?: string;
 }
 
 /**
@@ -266,6 +283,7 @@ export interface UpdatePullRequestParams {
   deleteSourceBranch?: boolean;
   isDraft?: boolean;
   targetRefName?: string;
+  project?: string;
 }
 
 /**
@@ -277,6 +295,7 @@ export interface UpdatePullRequestReviewersParams {
   reviewersToAdd?: string[];
   reviewersToRemove?: string[];
   makeRequired?: boolean;
+  project?: string;
 }
 
 /**
@@ -288,6 +307,7 @@ export interface ReplyToCommentParams {
   threadId: number;
   comment: string;
   format?: 'markdown' | 'html';
+  project?: string;
 }
 
 /**
@@ -298,6 +318,7 @@ export interface UpdatePullRequestThreadParams {
   pullRequestId: number;
   threadId: number;
   status: 'active' | 'byDesign' | 'closed' | 'fixed' | 'pending' | 'unknown' | 'wontFix';
+  project?: string;
 }
 
 /**
@@ -307,4 +328,5 @@ export interface CreateBranchParams {
   repository: string;
   branchName: string;
   sourceRef: string;
+  project?: string;
 }

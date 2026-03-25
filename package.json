@@ -7,7 +7,8 @@
     "build:ignore-errors": "tsc --skipLibCheck --noEmitOnError false",
     "start": "node dist/index.js",
     "dev": "ts-node src/index.ts",
-    "test": "echo \"Error: no test specified\" && exit 1",
+    "test": "vitest run",
+    "test:watch": "vitest",
     "prepublishOnly": "npm run build"
   },
   "bin": {
@@ -52,6 +53,7 @@
   "devDependencies": {
     "@types/node": "^24.9.1",
     "ts-node": "^10.9.2",
-    "typescript": "^5.9.3"
+    "typescript": "^5.9.3",
+    "vitest": "^4.1.0"
   }
 }
