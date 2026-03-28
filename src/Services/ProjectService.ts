@@ -45,7 +45,14 @@ export class ProjectService extends AzureDevOpsService {
       const coreApi = await this.getCoreApi();
       
       // Call getProjects without the stateFilter parameter
-      const projects = await coreApi.getProjects(params.top, params.skip);
+      const projects = await this.withAuthRetry(() => coreApi.getProjects(params.top, params.skip), {
+        operationName: 'projects.list',
+        details: {
+          top: params.top,
+          skip: params.skip,
+          stateFilter: params.stateFilter,
+        },
+      });
       
       // Filter by state if provided
       let filteredProjects = projects;
@@ -70,7 +77,13 @@ export class ProjectService extends AzureDevOpsService {
     try {
       const coreApi = await this.getCoreApi();
       
-      const project = await coreApi.getProject(params.projectId, params.includeCapabilities);
+      const project = await this.withAuthRetry(() => coreApi.getProject(params.projectId, params.includeCapabilities), {
+        operationName: 'projects.get',
+        details: {
+          projectId: params.projectId,
+          includeCapabilities: params.includeCapabilities,
+        },
+      });
       
       return project;
     } catch (error) {
@@ -125,7 +138,14 @@ export class ProjectService extends AzureDevOpsService {
           params.path,
           params.depth ?? 2
         )
-      );
+      , {
+        operationName: 'projects.areas.getClassificationNode',
+        details: {
+          projectId: params.projectId,
+          path: params.path,
+          depth: params.depth ?? 2,
+        },
+      });
       return node;
     } catch (error) {
       console.error(`Error getting areas for project ${params.projectId}:`, error);
@@ -146,7 +166,14 @@ export class ProjectService extends AzureDevOpsService {
           params.path,
           params.depth ?? 2
         )
-      );
+      , {
+        operationName: 'projects.iterations.getClassificationNode',
+        details: {
+          projectId: params.projectId,
+          path: params.path,
+          depth: params.depth ?? 2,
+        },
+      });
       return node;
     } catch (error) {
       console.error(`Error getting iterations for project ${params.projectId}:`, error);
@@ -167,7 +194,14 @@ export class ProjectService extends AzureDevOpsService {
           TreeStructureGroup.Areas,
           params.parentPath
         )
-      );
+      , {
+        operationName: 'projects.areas.createClassificationNode',
+        details: {
+          projectId: params.projectId,
+          parentPath: params.parentPath,
+          name: params.name,
+        },
+      });
       return node;
     } catch (error) {
       console.error(`Error creating area ${params.name}:`, error);
@@ -194,7 +228,14 @@ export class ProjectService extends AzureDevOpsService {
           TreeStructureGroup.Iterations,
           params.parentPath
         )
-      );
+      , {
+        operationName: 'projects.iterations.createClassificationNode',
+        details: {
+          projectId: params.projectId,
+          parentPath: params.parentPath,
+          name: params.name,
+        },
+      });
       return node;
     } catch (error) {
       console.error(`Error creating iteration ${params.name}:`, error);

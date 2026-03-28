@@ -20,7 +20,8 @@ import {
   truncateText,
   markdownTable,
   getSprintTimeframeEmoji,
-  getSprintTimeframeLabel
+  getSprintTimeframeLabel,
+  buildWorkItemSummaryTable,
 } from '../utils/formatHelpers';
 
 export class BoardsSprintsTools {
@@ -244,16 +245,9 @@ export class BoardsSprintsTools {
       }
 
       let md = `## Sprint Work Items\n\n**${itemList.length} item${itemList.length !== 1 ? 's' : ''}** in sprint \`${params.sprintId}\`\n\n`;
+      md += buildWorkItemSummaryTable(itemList);
 
-      const rows = itemList.map((item: any) => {
-        const wi = item.target || item;
-        const id = wi.id || wi.workItem?.id || 'N/A';
-        const url = wi.url || wi.workItem?.url || '-';
-        return [`#${id}`, url !== '-' ? `[Link](${url})` : '-'];
-      });
-      md += markdownTable(['ID', 'URL'], rows);
-
-      md += `\n\n💡 Use \`getWorkItemById\` with any ID to see full details.`;
+      md += `\n\nUse \`getWorkItemById\` for a full single-item view when you need relations, description, or rollups.`;
 
       return formatMcpResponse(workItems, md, false, true);
     } catch (error) {

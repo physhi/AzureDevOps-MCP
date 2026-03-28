@@ -126,11 +126,18 @@ export class GitService extends AzureDevOpsService {
     try {
       const gitApi = await this.getGitApi();
       
-      const repositories = await gitApi.getRepositories(
+      const repositories = await this.withAuthRetry(() => gitApi.getRepositories(
         params.projectId || this.config.project,
         params.includeHidden,
         params.includeAllUrls
-      );
+      ), {
+        operationName: 'git.repositories.list',
+        details: {
+          projectId: params.projectId || this.config.project,
+          includeHidden: params.includeHidden,
+          includeAllUrls: params.includeAllUrls,
+        },
+      });
       
       return repositories;
     } catch (error) {
@@ -786,7 +793,16 @@ export class GitService extends AzureDevOpsService {
           params.skip || 0,
           params.top || 50
         )
-      );
+      , {
+        operationName: 'git.pullRequests.list',
+        details: {
+          project,
+          repositoryId,
+          top: params.top || 50,
+          skip: params.skip || 0,
+          status: params.status || 'default',
+        },
+      });
 
       // Note: Work item integration could be added here in the future
       // For now, we return the basic pull request data with rich reviewer information
@@ -867,7 +883,14 @@ export class GitService extends AzureDevOpsService {
 
       const pullRequest = await this.withAuthRetry(() =>
         gitApi.getPullRequest(repositoryId, params.pullRequestId, project)
-      );
+      , {
+        operationName: 'git.pullRequests.get',
+        details: {
+          project,
+          repositoryId,
+          pullRequestId: params.pullRequestId,
+        },
+      });
 
       // Create enhanced response with work items
       const enhancedPullRequest: any = { ...pullRequest };

@@ -225,3 +225,19 @@ export function markdownTable(headers: string[], rows: string[][]): string {
   const dataRows = rows.map(row => `| ${row.join(' | ')} |`).join('\n');
   return `${headerRow}\n${separator}\n${dataRows}`;
 }
+
+export function buildWorkItemSummaryTable(workItems: any[]): string {
+  const rows = workItems.map((workItem: any) => [
+    `#${workItem.id || 'N/A'}`,
+    truncateText(workItem.title || '-', 36),
+    workItem.workItemType || '-',
+    workItem.state || '-',
+    truncateText(workItem.assignedTo?.displayName || 'Unassigned', 18),
+    truncateText(workItem.createdBy?.displayName || 'Unknown', 18),
+    truncateText(workItem.areaPath || '-', 22),
+    truncateText(workItem.teamProject || '-', 16),
+    workItem.changedDate ? formatRelativeDate(workItem.changedDate) : '-',
+  ]);
+
+  return markdownTable(['ID', 'Title', 'Type', 'State', 'Assigned', 'Author', 'Area', 'Team', 'Changed'], rows);
+}

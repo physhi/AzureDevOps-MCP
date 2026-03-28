@@ -2,7 +2,7 @@ import * as azdev from 'azure-devops-node-api';
 import { WorkApi } from 'azure-devops-node-api/WorkApi';
 import { CoreApi } from 'azure-devops-node-api/CoreApi';
 import { AzureDevOpsConfig } from '../Interfaces/AzureDevOps';
-import { AzureDevOpsService } from './AzureDevOpsService';
+import { AzureDevOpsService, ThrottleNotice } from './AzureDevOpsService';
 import {
   GetBoardsParams,
   GetBoardColumnsParams,
@@ -58,7 +58,13 @@ export class BoardsSprintsService extends AzureDevOpsService {
       const workApi = await this.getWorkApi();
       const teamContext = this.getTeamContext(params.teamId);
       
-      const boards = await workApi.getBoards(teamContext);
+      const boards = await this.withAuthRetry(() => workApi.getBoards(teamContext), {
+        operationName: 'boards.list',
+        details: {
+          project: this.config.project,
+          teamId: params.teamId,
+        },
+      });
       return boards;
     } catch (error) {
       console.error('Error getting boards:', error);
@@ -74,7 +80,14 @@ export class BoardsSprintsService extends AzureDevOpsService {
       const workApi = await this.getWorkApi();
       const teamContext = this.getTeamContext(params.teamId);
       
-      const columns = await workApi.getBoardColumns(teamContext, params.boardId);
+      const columns = await this.withAuthRetry(() => workApi.getBoardColumns(teamContext, params.boardId), {
+        operationName: 'boards.columns.list',
+        details: {
+          project: this.config.project,
+          teamId: params.teamId,
+          boardId: params.boardId,
+        },
+      });
       return columns;
     } catch (error) {
       console.error(`Error getting columns for board ${params.boardId}:`, error);
@@ -92,10 +105,24 @@ export class BoardsSprintsService extends AzureDevOpsService {
       
       // Get board cards - use a different approach since getCardsBySettings doesn't exist
       // First get the board
-      const board = await workApi.getBoard(teamContext, params.boardId);
+      const board = await this.withAuthRetry(() => workApi.getBoard(teamContext, params.boardId), {
+        operationName: 'boards.get',
+        details: {
+          project: this.config.project,
+          teamId: params.teamId,
+          boardId: params.boardId,
+        },
+      });
       
       // Then get the board columns
-      const columns = await workApi.getBoardColumns(teamContext, params.boardId);
+      const columns = await this.withAuthRetry(() => workApi.getBoardColumns(teamContext, params.boardId), {
+        operationName: 'boards.items.columns',
+        details: {
+          project: this.config.project,
+          teamId: params.teamId,
+          boardId: params.boardId,
+        },
+      });
       
       // Combine the data
       return {
@@ -143,7 +170,13 @@ export class BoardsSprintsService extends AzureDevOpsService {
       const workApi = await this.getWorkApi();
       const teamContext = this.getTeamContext(params.teamId);
       
-      const sprints = await workApi.getTeamIterations(teamContext);
+      const sprints = await this.withAuthRetry(() => workApi.getTeamIterations(teamContext), {
+        operationName: 'sprints.list',
+        details: {
+          project: this.config.project,
+          teamId: params.teamId,
+        },
+      });
       return sprints;
     } catch (error) {
       console.error('Error getting sprints:', error);
@@ -159,7 +192,13 @@ export class BoardsSprintsService extends AzureDevOpsService {
       const workApi = await this.getWorkApi();
       const teamContext = this.getTeamContext(params.teamId);
       
-      const currentIterations = await workApi.getTeamIterations(teamContext, "current");
+      const currentIterations = await this.withAuthRetry(() => workApi.getTeamIterations(teamContext, "current"), {
+        operationName: 'sprints.current',
+        details: {
+          project: this.config.project,
+          teamId: params.teamId,
+        },
+      });
       return currentIterations && currentIterations.length > 0 ? currentIterations[0] : null;
     } catch (error) {
       console.error('Error getting current sprint:', error);
@@ -174,9 +213,31 @@ export class BoardsSprintsService extends AzureDevOpsService {
     try {
       const workApi = await this.getWorkApi();
       const teamContext = this.getTeamContext(params.teamId);
-      
-      const workItems = await workApi.getIterationWorkItems(teamContext, params.sprintId);
-      return workItems;
+
+      const throttleNotices: ThrottleNotice[] = [];
+      const workItems = await this.withAuthRetry(() => workApi.getIterationWorkItems(teamContext, params.sprintId), {
+        operationName: 'boards.sprint.getIterationWorkItems',
+        details: {
+          project: this.config.project,
+          sprintId: params.sprintId,
+          teamId: params.teamId,
+        },
+      }, throttleNotices);
+      const sprintItems: any = workItems;
+      const itemRefs = sprintItems?.workItems || sprintItems?.workItemRelations || [];
+      const hydratedWorkItems = await this.hydrateWorkItemRefs(Array.isArray(itemRefs) ? itemRefs : [], {
+        fields: params.fields,
+        extractId: (item: any) => item?.target?.id || item?.id || item?.workItem?.id,
+        operationName: 'boards.sprint.batchHydrate',
+        throttleAccumulator: throttleNotices,
+      });
+
+      return {
+        ...workItems,
+        workItems: hydratedWorkItems,
+        count: hydratedWorkItems.length,
+        throttleInfo: AzureDevOpsService.buildThrottleInfo(throttleNotices),
+      };
     } catch (error) {
       console.error(`Error getting work items for sprint ${params.sprintId}:`, error);
       throw error;
@@ -192,7 +253,14 @@ export class BoardsSprintsService extends AzureDevOpsService {
       const teamContext = this.getTeamContext(params.teamId);
       
       // Get board charts instead of cards since getBoardCards doesn't exist
-      const charts = await workApi.getBoardCharts(teamContext, params.boardId);
+      const charts = await this.withAuthRetry(() => workApi.getBoardCharts(teamContext, params.boardId), {
+        operationName: 'boards.charts.list',
+        details: {
+          project: this.config.project,
+          teamId: params.teamId,
+          boardId: params.boardId,
+        },
+      });
       
       return charts;
     } catch (error) {
@@ -210,7 +278,14 @@ export class BoardsSprintsService extends AzureDevOpsService {
       const teamContext = this.getTeamContext(params.teamId);
       
       // Get team settings instead of capacities since getCapacities doesn't exist
-      const teamSettings = await workApi.getTeamSettings(teamContext);
+      const teamSettings = await this.withAuthRetry(() => workApi.getTeamSettings(teamContext), {
+        operationName: 'sprints.capacity.teamSettings',
+        details: {
+          project: this.config.project,
+          teamId: params.teamId,
+          sprintId: params.sprintId,
+        },
+      });
       
       // Return team settings as a workaround
       return {
@@ -233,7 +308,13 @@ export class BoardsSprintsService extends AzureDevOpsService {
       const teamId = params.teamId || this.config.project;
       
       // Get team members with extended properties
-      const members = await coreApi.getTeamMembersWithExtendedProperties(this.config.project, teamId);
+      const members = await this.withAuthRetry(() => coreApi.getTeamMembersWithExtendedProperties(this.config.project, teamId), {
+        operationName: 'teams.members.list',
+        details: {
+          project: this.config.project,
+          teamId,
+        },
+      });
       
       // Transform to streamlined format for MCP tool consumption
       if (members && Array.isArray(members)) {
@@ -259,7 +340,14 @@ export class BoardsSprintsService extends AzureDevOpsService {
   public async getTeams(top?: number, skip?: number): Promise<any[]> {
     try {
       const coreApi = await this.getCoreApi();
-      const teams = await coreApi.getTeams(this.config.project, undefined, top ?? 100, skip);
+      const teams = await this.withAuthRetry(() => coreApi.getTeams(this.config.project, undefined, top ?? 100, skip), {
+        operationName: 'teams.list',
+        details: {
+          project: this.config.project,
+          top: top ?? 100,
+          skip,
+        },
+      });
       return teams;
     } catch (error) {
       console.error('Error getting teams:', error);
@@ -273,7 +361,12 @@ export class BoardsSprintsService extends AzureDevOpsService {
   private async getDefaultTeamId(): Promise<string> {
     try {
       const coreApi = await this.getCoreApi();
-      const teams = await coreApi.getTeams(this.config.project);
+      const teams = await this.withAuthRetry(() => coreApi.getTeams(this.config.project), {
+        operationName: 'teams.default.lookup',
+        details: {
+          project: this.config.project,
+        },
+      });
       
       // Find the default team, which often has the same name as the project
       const defaultTeam = teams.find(team => team.name === this.config.project) || teams[0];

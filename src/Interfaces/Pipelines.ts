@@ -98,6 +98,7 @@ export interface GetBuildWorkItemsParams {
   buildId: number;
   top?: number;
   project?: string;
+  fields?: string[];
 }
 
 /**

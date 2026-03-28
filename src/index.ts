@@ -93,13 +93,16 @@ async function main() {
     });
 
     // Register Work Item Tools
-    allowedTools.has("listWorkItems") && server.tool("listWorkItems", 
-      "List work items based on a WIQL query",
+    allowedTools.has("listWorkItems") && server.tool("listWorkItems",
+      "List work items based on a WIQL query. By default, flat queries are scoped to recently changed work items.",
       {
-        query: z.string().describe("WIQL query to get work items")
+        query: z.string().describe("WIQL query to get work items"),
+        top: z.coerce.number().optional().describe("Maximum number of work items to return (default 100)"),
+        days: z.coerce.number().optional().describe("For flat WorkItems queries, scope to items changed in the last N days (default 7)"),
+        fields: z.preprocess(coerceArray, z.array(z.string()).optional()).describe("Optional field list to batch-fetch for the returned items. Defaults to a basic summary field set.")
       },
       async (params, extra) => {
-        const result = await workItemTools.listWorkItems({ query: params.query });
+        const result = await workItemTools.listWorkItems({ query: params.query, top: params.top, days: params.days, fields: params.fields });
         return {
           content: result.content,
           rawData: result.rawData,
@@ -126,10 +129,12 @@ async function main() {
     );
     
     allowedTools.has("searchWorkItems") && server.tool("searchWorkItems",
-      "Search for work items by text with summary and organized results",
+      "Search for work items by text. Uses CONTAINS-based WIQL, returns basic summary fields via a batched fetch, and includes the generated WIQL so callers can move to focused queries.",
       {
         searchText: z.string().describe("Text to search for in work items"),
-        top: z.coerce.number().optional().describe("Maximum number of work items to return")
+        top: z.coerce.number().optional().describe("Maximum number of work items to return (default 25)"),
+        days: z.coerce.number().optional().describe("Scope search to items changed in the last N days (default 7)"),
+        fields: z.preprocess(coerceArray, z.array(z.string()).optional()).describe("Optional field list to batch-fetch for matched items. Defaults to a basic summary field set.")
       },
       async (params, extra) => {
         const result = await workItemTools.searchWorkItems(params);
@@ -142,11 +147,13 @@ async function main() {
       }
     );
     
-    allowedTools.has("getRecentlyUpdatedWorkItems") && server.tool("getRecentlyUpdatedWorkItems", 
+    allowedTools.has("getRecentlyUpdatedWorkItems") && server.tool("getRecentlyUpdatedWorkItems",
       "Get recently updated work items",
       {
         top: z.coerce.number().optional().describe("Maximum number of work items to return"),
-        skip: z.coerce.number().optional().describe("Number of work items to skip")
+        skip: z.coerce.number().optional().describe("Number of work items to skip"),
+        days: z.coerce.number().optional().describe("Number of days to look back (default 7)"),
+        fields: z.preprocess(coerceArray, z.array(z.string()).optional()).describe("Optional field list to batch-fetch for returned items. Defaults to a basic summary field set.")
       },
       async (params, extra) => {
         const result = await workItemTools.getRecentlyUpdatedWorkItems(params);
@@ -159,10 +166,12 @@ async function main() {
     );
     
     allowedTools.has("getMyWorkItems") && server.tool("getMyWorkItems", 
-      "Get work items assigned to you",
+      "Get work items assigned to you. By default, only recently changed items are returned.",
       {
         state: z.string().optional().describe("Filter by work item state"),
-        top: z.coerce.number().optional().describe("Maximum number of work items to return")
+        top: z.coerce.number().optional().describe("Maximum number of work items to return (default 50)"),
+        days: z.coerce.number().optional().describe("Scope to items changed in the last N days (default 7)"),
+        fields: z.preprocess(coerceArray, z.array(z.string()).optional()).describe("Optional field list to batch-fetch for returned items. Defaults to a basic summary field set.")
       },
       async (params, extra) => {
         const result = await workItemTools.getMyWorkItems(params);
@@ -386,9 +395,10 @@ async function main() {
     );
 
     allowedTools.has("getQueryResults") && server.tool("getQueryResults",
-      "Execute a saved WIQL query by its query ID and return the resulting work items",
+      "Execute a saved WIQL query by its query ID and return the resulting work items with a batched summary field set.",
       {
         queryId: z.string().describe("The GUID of the saved query to execute"),
+        fields: z.preprocess(coerceArray, z.array(z.string()).optional()).describe("Optional field list to batch-fetch for the returned items. Defaults to a basic summary field set."),
       },
       async (params) => {
         const result = await workItemTools.getQueryResults(params);
@@ -525,10 +535,11 @@ async function main() {
     );
     
     allowedTools.has("getSprintWorkItems") && server.tool("getSprintWorkItems", 
-      "Get work items in a specific sprint",
+      "Get work items in a specific sprint with a batched summary field set.",
       {
         teamId: z.string().optional().describe("Team ID (uses default team if not specified)"),
-        sprintId: z.string().describe("ID of the sprint")
+        sprintId: z.string().describe("ID of the sprint"),
+        fields: z.preprocess(coerceArray, z.array(z.string()).optional()).describe("Optional field list to batch-fetch for sprint items. Defaults to a basic summary field set.")
       },
       async (params, extra) => {
         const result = await boardsSprintsTools.getSprintWorkItems(params);
@@ -2315,11 +2326,12 @@ async function main() {
     );
 
     allowedTools.has("getBuildWorkItems") && server.tool("getBuildWorkItems",
-      "Get work items associated with a build",
+      "Get work items associated with a build with a batched summary field set.",
       {
         project: z.string().optional().describe("Azure DevOps project name or ID. Defaults to the configured project."),
         buildId: zId().describe("Build ID"),
         top: z.coerce.number().optional().describe("Maximum number of work items to return (default 50)"),
+        fields: z.preprocess(coerceArray, z.array(z.string()).optional()).describe("Optional field list to batch-fetch for the returned work items. Defaults to a basic summary field set."),
       },
       async (params) => {
         const result = await buildTools.getBuildWorkItems(params);

@@ -12,6 +12,8 @@ export interface WorkItemByIdParams {
 export interface SearchWorkItemsParams {
   searchText: string;
   top?: number;
+  days?: number;
+  fields?: string[];
 }
 
 /**
@@ -20,6 +22,8 @@ export interface SearchWorkItemsParams {
 export interface RecentWorkItemsParams {
   top?: number;
   skip?: number;
+  days?: number;
+  fields?: string[];
 }
 
 /**
@@ -28,6 +32,8 @@ export interface RecentWorkItemsParams {
 export interface MyWorkItemsParams {
   state?: string;
   top?: number;
+  days?: number;
+  fields?: string[];
 }
 
 /**
@@ -161,10 +167,21 @@ export interface GetWorkItemRevisionsParams {
 }
 
 /**
+ * Interface for listing work items via raw WIQL
+ */
+export interface ListWorkItemsParams {
+  query: string;
+  top?: number;
+  days?: number;
+  fields?: string[];
+}
+
+/**
  * Interface for executing a saved WIQL query by ID
  */
 export interface GetQueryResultsParams {
   queryId: string;
+  fields?: string[];
 }
 
 /**

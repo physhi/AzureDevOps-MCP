@@ -25,7 +25,9 @@ import {
   GetQueryResultsParams,
   AddChildWorkItemParams,
   UnlinkWorkItemParams,
+  ListWorkItemsParams,
 } from '../Interfaces/WorkItems';
+import { ThrottleNotice } from './AzureDevOpsService';
 import { markdownToHtml, unescapeHtmlEntities, normalizeLiteralEscapes } from '../utils/formatHelpers';
 
 /** Rich-text fields that expect HTML — markdown is auto-converted for these */
@@ -38,23 +40,131 @@ const RICH_TEXT_FIELDS = new Set([
 ]);
 
 export class WorkItemService extends AzureDevOpsService {
+  private wiqlCache = new Map<string, { result: any; timestamp: number }>();
+  private readonly CACHE_TTL_MS = 60_000; // 60 seconds
+  private readonly MAX_CACHE_ENTRIES = 50;
+  private readonly DEFAULT_RECENT_DAYS = 7;
+  private readonly MAX_RECENT_DAYS = 30;
+  private readonly DEFAULT_FIELDS = [
+    ...AzureDevOpsService.BASE_SUMMARY_FIELDS,
+    ...AzureDevOpsService.SCHEDULING_FIELDS,
+  ];
+
   constructor(config: AzureDevOpsConfig) {
     super(config);
+  }
+
+  private getCachedWiql(cacheKey: string): any | undefined {
+    const entry = this.wiqlCache.get(cacheKey);
+    if (entry && Date.now() - entry.timestamp < this.CACHE_TTL_MS) {
+      return entry.result;
+    }
+    if (entry) {
+      this.wiqlCache.delete(cacheKey);
+    }
+    return undefined;
+  }
+
+  private setCachedWiql(cacheKey: string, result: any): void {
+    if (this.wiqlCache.size >= this.MAX_CACHE_ENTRIES) {
+      const oldestKey = this.wiqlCache.keys().next().value;
+      if (oldestKey !== undefined) {
+        this.wiqlCache.delete(oldestKey);
+      }
+    }
+    this.wiqlCache.set(cacheKey, { result, timestamp: Date.now() });
+  }
+
+  private buildWiqlCacheKey(query: string, top?: number): string {
+    return `${this.config.project}:${top ?? 'none'}:${query}`;
+  }
+
+  private normalizeRecentDays(days?: number): number {
+    if (!days || Number.isNaN(days)) {
+      return this.DEFAULT_RECENT_DAYS;
+    }
+
+    return Math.min(Math.max(Math.floor(days), 1), this.MAX_RECENT_DAYS);
+  }
+
+  private escapeWiqlLiteral(value: string): string {
+    return value.replace(/'/g, "''");
+  }
+
+  private applyRecentChangesFilter(query: string, days?: number): { query: string; recentDaysApplied?: number } {
+    const normalizedDays = this.normalizeRecentDays(days);
+
+    if (/\bfrom\s+workitemlinks\b/i.test(query) || /\[System\.ChangedDate\]/i.test(query)) {
+      return { query };
+    }
+
+    const orderByMatch = query.match(/\border\s+by\b/i);
+    const whereMatch = query.match(/\bwhere\b/i);
+    const fromWorkItemsMatch = query.match(/\bfrom\s+workitems\b/i);
+
+    if (!whereMatch) {
+      if (!fromWorkItemsMatch || fromWorkItemsMatch.index === undefined) {
+        return { query };
+      }
+
+      const insertAt = fromWorkItemsMatch.index + fromWorkItemsMatch[0].length;
+      const scopedQuery = `${query.slice(0, insertAt)}\n                    WHERE [System.ChangedDate] >= @today - ${normalizedDays}${query.slice(insertAt)}`;
+      return { query: scopedQuery, recentDaysApplied: normalizedDays };
+    }
+
+    const filter = `\n                    AND [System.ChangedDate] >= @today - ${normalizedDays}`;
+
+    if (orderByMatch && orderByMatch.index !== undefined) {
+      return {
+        query: `${query.slice(0, orderByMatch.index)}${filter}\n                    ${query.slice(orderByMatch.index)}`,
+        recentDaysApplied: normalizedDays,
+      };
+    }
+
+    return {
+      query: `${query}${filter}`,
+      recentDaysApplied: normalizedDays,
+    };
   }
 
   /**
    * Query work items using WIQL
    */
-  public async listWorkItems(wiqlQuery: string): Promise<any> {
+  public async listWorkItems(wiqlQuery: string, top?: number, days?: number, fields?: string[]): Promise<any> {
     try {
+      const serverTop = top ?? 100;
+      const scopedQuery = this.applyRecentChangesFilter(wiqlQuery, days);
+      const cacheKey = this.buildWiqlCacheKey(scopedQuery.query, serverTop);
+      const cached = this.getCachedWiql(cacheKey);
+      if (cached) return cached;
+
+      const throttleNotices: ThrottleNotice[] = [];
       const witApi = await this.getWorkItemTrackingApi();
-      
-      // Execute the WIQL query
+
       const queryResult = await this.withAuthRetry(() =>
-        witApi.queryByWiql({ query: wiqlQuery }, { project: this.config.project })
-      );
-      
-      return queryResult;
+        witApi.queryByWiql({ query: scopedQuery.query }, { project: this.config.project }, undefined, serverTop)
+      , {
+        operationName: 'workItems.list.queryByWiql',
+        details: { project: this.config.project, top: serverTop, recentDays: scopedQuery.recentDaysApplied },
+      }, throttleNotices);
+
+      const hydratedWorkItems = await this.hydrateWorkItemRefs(queryResult.workItems || [], {
+        fields, defaults: this.DEFAULT_FIELDS, operationName: 'workItems.list.batchHydrate',
+        throttleAccumulator: throttleNotices,
+      });
+
+      const response = {
+        ...queryResult,
+        workItems: hydratedWorkItems,
+        count: hydratedWorkItems.length,
+        originalQuery: wiqlQuery,
+        effectiveQuery: scopedQuery.query,
+        recentDaysApplied: scopedQuery.recentDaysApplied,
+        throttleInfo: AzureDevOpsService.buildThrottleInfo(throttleNotices),
+      };
+
+      this.setCachedWiql(cacheKey, response);
+      return response;
     } catch (error) {
       console.error('Error listing work items:', error);
       throw error;
@@ -277,91 +387,68 @@ export class WorkItemService extends AzureDevOpsService {
    */
   public async searchWorkItems(params: SearchWorkItemsParams): Promise<any> {
     try {
-      const witApi = await this.getWorkItemTrackingApi();
-      const query = `SELECT [System.Id], [System.Title], [System.State], [System.CreatedDate] 
-                    FROM WorkItems 
-                    WHERE [System.TeamProject] = @project 
+      const serverTop = params.top || 25;
+      const recentDays = this.normalizeRecentDays(params.days);
+      const searchText = this.escapeWiqlLiteral(params.searchText);
+      const query = `SELECT [System.Id], [System.Title], [System.State], [System.ChangedDate]
+                    FROM WorkItems
+                    WHERE [System.TeamProject] = @project
+                    AND [System.ChangedDate] >= @today - ${recentDays}
                     AND (
-                      [System.Title] CONTAINS '${params.searchText}'
-                      OR [System.Description] CONTAINS '${params.searchText}'
+                      [System.Title] CONTAINS '${searchText}'
+                      OR [System.Description] CONTAINS '${searchText}'
                     )
-                    ORDER BY [System.CreatedDate] DESC`;
-      
-      const queryResult = await witApi.queryByWiql({
+                    ORDER BY [System.ChangedDate] DESC`;
+
+      const cacheKey = this.buildWiqlCacheKey(query, serverTop);
+      const cached = this.getCachedWiql(cacheKey);
+      if (cached) return cached;
+
+      const throttleNotices: ThrottleNotice[] = [];
+      const witApi = await this.getWorkItemTrackingApi();
+      const queryResult = await this.withAuthRetry(() => witApi.queryByWiql({
         query
       }, {
         project: this.config.project
-      });
-      
-      // Get full work item details if we have results
+      }, undefined, serverTop), {
+        operationName: 'workItems.search.queryByWiql',
+        details: { project: this.config.project, top: serverTop, recentDays },
+      }, throttleNotices);
+
+      const advisory = 'Search uses CONTAINS clauses, which are expensive in Azure DevOps. Prefer listWorkItems with focused WIQL or saved queries when possible.';
+
       if (queryResult.workItems && queryResult.workItems.length > 0) {
-        const workItemIds = queryResult.workItems
-          .slice(0, params.top || 50) // Limit results to avoid too many API calls
-          .map((wi: any) => wi.id);
-        
-        // Fetch detailed work item information
-        const detailedWorkItems = await witApi.getWorkItems(
-          workItemIds,
-          [
-            'System.Id', 
-            'System.Title', 
-            'System.WorkItemType',
-            'System.State', 
-            'System.AssignedTo',
-            'System.CreatedBy',
-            'System.CreatedDate',
-            'System.ChangedDate',
-            'System.AreaPath',
-            'System.IterationPath',
-            'Microsoft.VSTS.Common.Priority',
-            'Microsoft.VSTS.Scheduling.OriginalEstimate',
-            'Microsoft.VSTS.Scheduling.CompletedWork',
-            'Microsoft.VSTS.Scheduling.RemainingWork'
-          ],
-          undefined,
-          undefined,
-          undefined,
-          this.config.project
-        );
-        
-        // Transform to consistent format
-        const transformedWorkItems = detailedWorkItems.map((workItem: any) => ({
-          id: workItem.id,
-          title: workItem.fields['System.Title'],
-          workItemType: workItem.fields['System.WorkItemType'],
-          state: workItem.fields['System.State'],
-          assignedTo: workItem.fields['System.AssignedTo'] ? {
-            displayName: workItem.fields['System.AssignedTo'].displayName,
-            uniqueName: workItem.fields['System.AssignedTo'].uniqueName
-          } : null,
-          createdBy: workItem.fields['System.CreatedBy'] ? {
-            displayName: workItem.fields['System.CreatedBy'].displayName,
-            uniqueName: workItem.fields['System.CreatedBy'].uniqueName
-          } : null,
-          createdDate: workItem.fields['System.CreatedDate'],
-          changedDate: workItem.fields['System.ChangedDate'],
-          areaPath: workItem.fields['System.AreaPath'],
-          iterationPath: workItem.fields['System.IterationPath'],
-          priority: workItem.fields['Microsoft.VSTS.Common.Priority'],
-          originalEstimate: workItem.fields['Microsoft.VSTS.Scheduling.OriginalEstimate'],
-          completedWork: workItem.fields['Microsoft.VSTS.Scheduling.CompletedWork'],
-          remainingWork: workItem.fields['Microsoft.VSTS.Scheduling.RemainingWork']
-        }));
-        
-        return {
+        const transformedWorkItems = await this.hydrateWorkItemRefs(queryResult.workItems, {
+          fields: params.fields, defaults: this.DEFAULT_FIELDS, operationName: 'workItems.search.batchHydrate',
+          throttleAccumulator: throttleNotices,
+        });
+
+        const response = {
           searchQuery: params.searchText,
           totalResults: queryResult.workItems.length,
           returnedResults: transformedWorkItems.length,
-          workItems: transformedWorkItems
+          workItems: transformedWorkItems,
+          wiql: query,
+          recentDaysApplied: recentDays,
+          throttleInfo: AzureDevOpsService.buildThrottleInfo(throttleNotices),
+          advisory,
         };
+        this.setCachedWiql(cacheKey, response);
+        return response;
       }
-      
-      return {
+
+      const emptyResponse = {
         searchQuery: params.searchText,
         totalResults: 0,
         returnedResults: 0,
-        workItems: []
+        workItems: [],
+        wiql: query,
+        recentDaysApplied: recentDays,
+        throttleInfo: AzureDevOpsService.buildThrottleInfo(throttleNotices),
+        advisory,
       };
+      this.setCachedWiql(cacheKey, emptyResponse);
+      return emptyResponse;
     } catch (error) {
       console.error('Error searching work items:', error);
       throw error;
@@ -373,26 +460,46 @@ export class WorkItemService extends AzureDevOpsService {
    */
   public async getRecentWorkItems(params: RecentWorkItemsParams): Promise<any> {
     try {
-      const witApi = await this.getWorkItemTrackingApi();
-      const query = `SELECT [System.Id], [System.Title], [System.State], [System.ChangedDate] 
-                    FROM WorkItems 
-                    WHERE [System.TeamProject] = @project 
+      const days = this.normalizeRecentDays(params.days);
+      const top = params.top || 10;
+      const skip = params.skip || 0;
+      const serverTop = skip + top;
+      const query = `SELECT [System.Id], [System.Title], [System.State], [System.ChangedDate]
+                    FROM WorkItems
+                    WHERE [System.TeamProject] = @project
+                    AND [System.ChangedDate] >= @today - ${days}
                     ORDER BY [System.ChangedDate] DESC`;
-      
-      const queryResult = await witApi.queryByWiql({
+
+      const cacheKey = this.buildWiqlCacheKey(query, serverTop);
+      const cached = this.getCachedWiql(cacheKey);
+      if (cached) return cached;
+
+      const throttleNotices: ThrottleNotice[] = [];
+      const witApi = await this.getWorkItemTrackingApi();
+      const queryResult = await this.withAuthRetry(() => witApi.queryByWiql({
         query
       }, {
         project: this.config.project
+      }, undefined, serverTop), {
+        operationName: 'workItems.recent.queryByWiql',
+        details: { project: this.config.project, top: serverTop, recentDays: days },
+      }, throttleNotices);
+
+      const pageRefs = queryResult.workItems ? queryResult.workItems.slice(skip, skip + top) : [];
+      const hydratedWorkItems = await this.hydrateWorkItemRefs(pageRefs, {
+        fields: params.fields, defaults: this.DEFAULT_FIELDS, operationName: 'workItems.recent.batchHydrate',
+        throttleAccumulator: throttleNotices,
       });
-      
-      const top = params.top || 10;
-      const skip = params.skip || 0;
-      
-      if (queryResult.workItems) {
-        queryResult.workItems = queryResult.workItems.slice(skip, skip + top);
-      }
-      
-      return queryResult;
+
+      const response = {
+        ...queryResult,
+        workItems: hydratedWorkItems,
+        count: hydratedWorkItems.length,
+        recentDaysApplied: days,
+        throttleInfo: AzureDevOpsService.buildThrottleInfo(throttleNotices),
+      };
+      this.setCachedWiql(cacheKey, response);
+      return response;
     } catch (error) {
       console.error('Error getting recent work items:', error);
       throw error;
@@ -404,32 +511,50 @@ export class WorkItemService extends AzureDevOpsService {
    */
   public async getMyWorkItems(params: MyWorkItemsParams): Promise<any> {
     try {
-      const witApi = await this.getWorkItemTrackingApi();
       let stateCondition = '';
       if (params.state) {
-        stateCondition = `AND [System.State] = '${params.state}'`;
+        stateCondition = `AND [System.State] = '${this.escapeWiqlLiteral(params.state)}'`;
       }
-      
-      const query = `SELECT [System.Id], [System.Title], [System.State], [System.CreatedDate] 
-                    FROM WorkItems 
-                    WHERE [System.TeamProject] = @project 
+      const serverTop = params.top || 50;
+      const recentDays = this.normalizeRecentDays(params.days);
+
+      const query = `SELECT [System.Id], [System.Title], [System.State], [System.CreatedDate]
+                    FROM WorkItems
+                    WHERE [System.TeamProject] = @project
                     AND [System.AssignedTo] = @me
+                    AND [System.ChangedDate] >= @today - ${recentDays}
                     ${stateCondition}
                     ORDER BY [System.CreatedDate] DESC`;
-      
-      const queryResult = await witApi.queryByWiql({
+
+      const cacheKey = this.buildWiqlCacheKey(query, serverTop);
+      const cached = this.getCachedWiql(cacheKey);
+      if (cached) return cached;
+
+      const throttleNotices: ThrottleNotice[] = [];
+      const witApi = await this.getWorkItemTrackingApi();
+      const queryResult = await this.withAuthRetry(() => witApi.queryByWiql({
         query
       }, {
         project: this.config.project
+      }, undefined, serverTop), {
+        operationName: 'workItems.mine.queryByWiql',
+        details: { project: this.config.project, top: serverTop, recentDays },
+      }, throttleNotices);
+
+      const hydratedWorkItems = await this.hydrateWorkItemRefs(queryResult.workItems || [], {
+        fields: params.fields, defaults: this.DEFAULT_FIELDS, operationName: 'workItems.mine.batchHydrate',
+        throttleAccumulator: throttleNotices,
       });
-      
-      const top = params.top || 100;
-      
-      if (queryResult.workItems) {
-        queryResult.workItems = queryResult.workItems.slice(0, top);
-      }
-      
-      return queryResult;
+
+      const response = {
+        ...queryResult,
+        workItems: hydratedWorkItems,
+        count: hydratedWorkItems.length,
+        recentDaysApplied: recentDays,
+        throttleInfo: AzureDevOpsService.buildThrottleInfo(throttleNotices),
+      };
+      this.setCachedWiql(cacheKey, response);
+      return response;
     } catch (error) {
       console.error('Error getting my work items:', error);
       throw error;
@@ -836,34 +961,38 @@ export class WorkItemService extends AzureDevOpsService {
    */
   public async getQueryResults(params: GetQueryResultsParams): Promise<any> {
     try {
+      const throttleNotices: ThrottleNotice[] = [];
       const witApi = await this.getWorkItemTrackingApi();
 
-      // Execute the stored query
-      const queryResult = await witApi.queryById(
+      const queryResult = await this.withAuthRetry(() => witApi.queryById(
         params.queryId,
         { project: this.config.project } as any,
-      );
+      ), {
+        operationName: 'workItems.savedQuery.queryById',
+        details: { project: this.config.project, queryId: params.queryId },
+      }, throttleNotices);
 
       if (!queryResult || !queryResult.workItems || queryResult.workItems.length === 0) {
-        return { workItems: [], count: 0, queryType: queryResult.queryType };
+        return {
+          workItems: [],
+          count: 0,
+          queryType: queryResult?.queryType,
+          columns: queryResult?.columns?.map((c: any) => c.referenceName),
+          throttleInfo: AzureDevOpsService.buildThrottleInfo(throttleNotices),
+        };
       }
 
-      // Get full work item details for the returned IDs
-      const ids = queryResult.workItems
-        .map((wi: any) => wi.id)
-        .filter((id: number | undefined): id is number => id !== undefined)
-        .slice(0, 200); // Limit to 200
+      const hydratedWorkItems = await this.hydrateWorkItemRefs(queryResult.workItems, {
+        fields: params.fields, defaults: this.DEFAULT_FIELDS, operationName: 'workItems.savedQuery.batchHydrate',
+        throttleAccumulator: throttleNotices,
+      });
 
-      if (ids.length === 0) {
-        return { workItems: [], count: 0, queryType: queryResult.queryType };
-      }
-
-      const workItems = await witApi.getWorkItems(ids);
       return {
-        workItems: workItems || [],
-        count: workItems?.length || 0,
+        workItems: hydratedWorkItems,
+        count: hydratedWorkItems.length,
         queryType: queryResult.queryType,
         columns: queryResult.columns?.map((c: any) => c.referenceName),
+        throttleInfo: AzureDevOpsService.buildThrottleInfo(throttleNotices),
       };
     } catch (error) {
       console.error('Error executing saved query:', error);

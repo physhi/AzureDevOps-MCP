@@ -28,10 +28,14 @@ export function formatMcpResponse(data: any, message?: string, isError = false, 
   // When a message is provided, use it as the sole content (markdown-formatted tools)
   // Only fall back to JSON dump when no message is provided at all
   const hasMessage = message && message.length > 0;
+  const throttleInfo = data?.throttleInfo;
+  const throttleBanner = throttleInfo?.throttled
+    ? `Warning: Azure DevOps throttled this operation. Waited ${(throttleInfo.totalWaitMs / 1000).toFixed(1)}s across ${throttleInfo.retryCount} retr${throttleInfo.retryCount === 1 ? 'y' : 'ies'} before continuing. This usually means too many requests are being sent in a short period.\n\n---\n\n`
+    : '';
 
   const response: McpResponse = {
     content: hasMessage
-      ? [{ type: "text", text: message }]
+      ? [{ type: "text", text: `${throttleBanner}${message}` }]
       : [
           { type: "text", text: isError ? "Error occurred" : "Request successful" },
           { type: "text", text: typeof data === 'string' ? data : JSON.stringify(data, null, 2) }
@@ -102,8 +106,14 @@ export function setErrorContext(context: { orgUrl?: string; project?: string; au
 export function formatErrorResponse(error: any): McpResponse {
   const errorMessage = error instanceof Error ? error.message : String(error);
   let md = `Error: ${errorMessage}`;
+  const throttleInfo = error?.throttleInfo;
 
   const lower = errorMessage.toLowerCase();
+
+  if (throttleInfo?.throttled || error?.statusCode === 429 || lower.includes('too many requests') || lower.includes('rate limit') || lower.includes('throttle')) {
+    const totalWait = throttleInfo?.totalWaitMs ? `${(throttleInfo.totalWaitMs / 1000).toFixed(1)}s` : 'a retry window';
+    md += `\n\n**Azure DevOps is throttling requests.** The server waited for ${totalWait} before giving up. This indicates too many requests are being sent in a short period.`;
+  }
 
   // Auth error hints
   const statusCode = error?.statusCode || error?.status;

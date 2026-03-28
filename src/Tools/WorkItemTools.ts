@@ -24,6 +24,7 @@ import {
   GetQueryResultsParams,
   AddChildWorkItemParams,
   UnlinkWorkItemParams,
+  ListWorkItemsParams,
 } from '../Interfaces/WorkItems';
 import getClassMethods from "../utils/getClassMethods";
 import {
@@ -88,26 +89,60 @@ export class WorkItemTools {
     return project.id;
   }
 
+  private buildSummaryTable(workItems: any[], includeChanged = false): string {
+    const headers = ['ID', 'Title', 'Type', 'State', 'Assigned', 'Author', 'Area', 'Team'];
+    const rows = workItems.map((workItem: any) => {
+      const row = [
+        `#${workItem.id || 'N/A'}`,
+        truncateText(workItem.title || '-', 36),
+        `${getWorkItemTypeEmoji(workItem.workItemType || '')} ${workItem.workItemType || '-'}`,
+        `${getStateEmoji(workItem.state || '')} ${workItem.state || '-'}`,
+        truncateText(workItem.assignedTo?.displayName || 'Unassigned', 18),
+        truncateText(workItem.createdBy?.displayName || 'Unknown', 18),
+        truncateText(workItem.areaPath || '-', 22),
+        truncateText(workItem.teamProject || '-', 16),
+      ];
+
+      if (includeChanged) {
+        row.push(workItem.changedDate ? formatRelativeDate(workItem.changedDate) : '-');
+      }
+
+      return row;
+    });
+
+    if (includeChanged) {
+      headers.push('Changed');
+    }
+
+    return markdownTable(headers, rows);
+  }
+
   /**
    * List work items based on a WIQL query
    */
-  public async listWorkItems(params: { query: string }): Promise<McpResponse> {
+  public async listWorkItems(params: ListWorkItemsParams): Promise<McpResponse> {
     try {
-      const response = await this.workItemService.listWorkItems(params.query);
+      const response = await this.workItemService.listWorkItems(params.query, params.top, params.days, params.fields);
       const items = response.workItems || [];
 
       if (items.length === 0) {
-        return formatMcpResponse(response, `## Work Items\n\nNo work items found for the given WIQL query.\n\n💡 Check your query syntax or broaden the filter criteria.`);
+        let md = `## Work Items\n\nNo work items found for the given WIQL query.`;
+        if (response.recentDaysApplied) {
+          md += `\n\nScoped to the last **${response.recentDaysApplied} day${response.recentDaysApplied === 1 ? '' : 's'}** by default.`;
+        }
+        md += `\n\nCheck your query syntax, widen the date window, or broaden the filter criteria.`;
+        return formatMcpResponse(response, md);
       }
 
       let md = `## Work Items\n\n**${items.length} item${items.length !== 1 ? 's' : ''}** from WIQL query\n\n`;
-      const rows = items.map((wi: any) => {
-        const id = wi.id || 'N/A';
-        const url = wi.url || '-';
-        return [`#${id}`, url !== '-' ? `[Link](${url})` : '-'];
-      });
-      md += markdownTable(['ID', 'URL'], rows);
-      md += `\n\n💡 Use \`getWorkItemById\` with any ID to see full details.`;
+      if (response.recentDaysApplied) {
+        md += `Scoped to the last **${response.recentDaysApplied} day${response.recentDaysApplied === 1 ? '' : 's'}** by default.\n\n`;
+      }
+      md += this.buildSummaryTable(items);
+      if (response.effectiveQuery) {
+        md += `\n\n**Effective WIQL**\n\n\`\`\`sql\n${response.effectiveQuery}\n\`\`\``;
+      }
+      md += `\n\nUse \`getWorkItemsBatch\` with selected IDs and fields when you need details.`;
 
       return formatMcpResponse(response, md, false, true);
     } catch (error) {
@@ -154,10 +189,10 @@ export class WorkItemTools {
 
     // Helper function to format sprint information (inline)
     const formatSprintInfo = (iterationPath: string): string => {
-      if (!iterationPath) return '📅 No sprint';
+      if (!iterationPath) return 'No sprint';
       const parts = iterationPath.split('\\');
       const sprint = parts[parts.length - 1];
-      return sprint.toLowerCase().includes('sprint') ? `🏃‍♂️ ${sprint}` : `📅 ${sprint}`;
+      return sprint;
     };
 
     // Generate the main work item display with summary at top
@@ -169,7 +204,7 @@ export class WorkItemTools {
 
     // One-line summary with key info
     result += `**${emoji} ${workItem.workItemType}** | ${stateEmoji} ${workItem.state} | ${priorityEmoji} P${workItem.priority || '?'} | `;
-    result += `👤 ${workItem.assignedTo?.displayName || 'Unassigned'} | `;
+    result += `Assigned: ${workItem.assignedTo?.displayName || 'Unassigned'} | `;
     result += `${formatSprintInfo(workItem.iterationPath)}\n\n`;
 
     result += `# ${workItem.title}\n\n`;
@@ -186,7 +221,7 @@ export class WorkItemTools {
     const hasChildEffort = workItem.childEffortRollup;
 
     if (hasEffortData || hasChildEffort) {
-      result += `### ⏱️ Effort\n\n`;
+      result += `### Effort\n\n`;
 
       if (hasEffortData) {
         const original = workItem.originalEstimate || 0;
@@ -220,7 +255,7 @@ export class WorkItemTools {
 
     // Relationships section (concise list instead of detailed breakdown)
     if (workItem.relations && workItem.relations.length > 0) {
-      result += `### 🔗 Related Items\n\n`;
+      result += `### Related Items\n\n`;
 
       // Separate work item links from artifact links
       const wiRelations = workItem.relations.filter((r: any) => r.relationshipType !== 'ArtifactLink');
@@ -236,34 +271,33 @@ export class WorkItemTools {
         });
 
         const relationTypes: { [key: string]: string } = {
-          'System.LinkTypes.Hierarchy-Forward': '⬇️ Child',
-          'System.LinkTypes.Hierarchy-Reverse': '⬆️ Parent',
-          'System.LinkTypes.Dependency-Forward': '➡️ Successor',
-          'System.LinkTypes.Dependency-Reverse': '⬅️ Predecessor',
-          'System.LinkTypes.Related': '🔄 Related'
+          'System.LinkTypes.Hierarchy-Forward': 'Child',
+          'System.LinkTypes.Hierarchy-Reverse': 'Parent',
+          'System.LinkTypes.Dependency-Forward': 'Successor',
+          'System.LinkTypes.Dependency-Reverse': 'Predecessor',
+          'System.LinkTypes.Related': 'Related'
         };
 
         Object.entries(grouped).forEach(([relType, ids]) => {
           const label = relationTypes[relType]?.split(' ')[1] || 'Related';
-          const emojiPart = relationTypes[relType]?.split(' ')[0] || '🔗';
           const idList = ids.map(id => `#${id}`).join(', ');
-          result += `- ${emojiPart} ${idList} (${label})\n`;
+          result += `- ${idList} (${label})\n`;
         });
       }
 
       // Show artifact links
       if (artifactRelations.length > 0) {
         const artifactEmojis: { [key: string]: string } = {
-          'Pull Request': '🔀',
-          'Build': '🏗️',
-          'Branch': '🌿',
-          'Commit': '📝',
+          'Pull Request': 'PR',
+          'Build': 'Build',
+          'Branch': 'Branch',
+          'Commit': 'Commit',
         };
 
         artifactRelations.forEach((relation: any) => {
           const displayName = relation.artifactDisplayName || relation.artifactType || 'Artifact';
-          const emoji = artifactEmojis[relation.artifactType] || '🔗';
-          result += `- ${emoji} ${displayName} #${relation.artifactId} (${relation.artifactType})\n`;
+          const prefix = artifactEmojis[relation.artifactType] || 'Artifact';
+          result += `- ${prefix} ${displayName} #${relation.artifactId} (${relation.artifactType})\n`;
         });
       }
 
@@ -271,7 +305,7 @@ export class WorkItemTools {
     }
 
     // Description section
-    result += `## 📝 Description\n\n`;
+    result += `## Description\n\n`;
     result += `${formatDescription(workItem.description)}\n\n`;
 
     // Prepare structured content
@@ -337,11 +371,13 @@ export class WorkItemTools {
    */
   private formatSearchResultsResponse(results: any): McpResponse {
     if (!results || !results.workItems || results.workItems.length === 0) {
+      const recentWindow = results?.recentDaysApplied ? ` in the last ${results.recentDaysApplied} day${results.recentDaysApplied === 1 ? '' : 's'}` : '';
+      const wiqlBlock = results?.wiql ? `\n\n**Generated WIQL**\n\n\`\`\`sql\n${results.wiql}\n\`\`\`` : '';
       return {
         content: [
           {
             type: "text",
-            text: `## 🔍 Search Results\n\nNo work items found matching "${results?.searchQuery || 'your search'}".\n\nTry:\n- Using different keywords\n- Searching for partial words\n- Looking for work item types (Bug, Task, Feature, etc.)`
+            text: `## Search Results\n\nNo work items found matching "${results?.searchQuery || 'your search'}"${recentWindow}.\n\nContains-based search is expensive in Azure DevOps. Prefer focused WIQL via \`listWorkItems\` or a saved query when possible.${wiqlBlock}`
           }
         ]
       };
@@ -379,16 +415,18 @@ export class WorkItemTools {
     }
     result += `\n\n---\n\n`;
 
-    // Simplified 5-column table (was 8 columns)
-    result += `| ID | Title | Type | Status | Assigned |\n`;
-    result += `|----|-------|------|--------|----------|\n`;
+    result += `| ID | Title | Type | Status | Assigned | Author | Area | Team |\n`;
+    result += `|----|-------|------|--------|----------|--------|------|------|\n`;
 
     results.workItems.forEach((workItem: any) => {
       const typeEmoji = getWorkItemTypeEmoji(workItem.workItemType);
       const stateEmoji = getStateEmoji(workItem.state);
-      const assignedTo = workItem.assignedTo?.displayName?.split(' ')[0] || 'Unassigned';
+      const assignedTo = truncateText(workItem.assignedTo?.displayName || 'Unassigned', 18);
+      const createdBy = truncateText(workItem.createdBy?.displayName || 'Unknown', 18);
+      const areaPath = truncateText(workItem.areaPath || '-', 22);
+      const teamProject = truncateText(workItem.teamProject || '-', 16);
 
-      result += `| **#${workItem.id}** | ${truncateText(workItem.title)} | ${typeEmoji} ${workItem.workItemType} | ${stateEmoji} ${workItem.state} | ${assignedTo} |\n`;
+      result += `| **#${workItem.id}** | ${truncateText(workItem.title, 36)} | ${typeEmoji} ${workItem.workItemType} | ${stateEmoji} ${workItem.state} | ${assignedTo} | ${createdBy} | ${areaPath} | ${teamProject} |\n`;
     });
 
     result += `\n---\n\n`;
@@ -408,20 +446,32 @@ export class WorkItemTools {
     result += `**Recently Updated:** ${recentList}\n\n`;
 
     result += `---\n`;
-    result += `💡 **Tip:** Use \`getWorkItemById\` with any ID above to see full details, effort tracking, and relationships.\n`;
+    result += `Contains-based search is expensive in Azure DevOps and should be treated as a fallback, not the default discovery path.\n`;
+    if (results.wiql) {
+      result += `\n**Generated WIQL**\n\n\`\`\`sql\n${results.wiql}\n\`\`\`\n`;
+    }
+    result += `\nUse \`listWorkItems\` with focused WIQL for repeatable queries, and use \`getWorkItemsBatch\` when you want to fetch a controlled field set for specific IDs.\n`;
 
     // Prepare structured content
     const structuredData = {
       searchQuery: results.searchQuery,
       totalResults: results.totalResults,
       returnedResults: results.returnedResults,
+      recentDaysApplied: results.recentDaysApplied,
+      advisory: results.advisory,
+      wiql: results.wiql,
+      throttleInfo: results.throttleInfo,
       workItems: results.workItems.map((item: any) => ({
         id: item.id,
+        teamProject: item.teamProject,
         type: item.workItemType,
         title: item.title,
         state: item.state,
         priority: item.priority,
         assignedTo: item.assignedTo?.displayName,
+        createdBy: item.createdBy?.displayName,
+        areaPath: item.areaPath,
+        iterationPath: item.iterationPath,
         effort: {
           original: item.originalEstimate,
           completed: item.completedWork,
@@ -448,17 +498,15 @@ export class WorkItemTools {
       const items = results.workItems || [];
 
       if (items.length === 0) {
-        return formatMcpResponse(results, `## Recently Updated Work Items\n\nNo recently updated work items found.\n\n💡 Try increasing the time range or check project permissions.`);
+        return formatMcpResponse(results, `## Recently Updated Work Items\n\nNo recently updated work items found.\n\nTry increasing the time range or check project permissions.`);
       }
 
       let md = `## Recently Updated Work Items\n\n**${items.length} item${items.length !== 1 ? 's' : ''}**\n\n`;
-      const rows = items.map((wi: any) => {
-        const id = wi.id || 'N/A';
-        const url = wi.url || '-';
-        return [`#${id}`, url !== '-' ? `[Link](${url})` : '-'];
-      });
-      md += markdownTable(['ID', 'URL'], rows);
-      md += `\n\n💡 Use \`getWorkItemById\` with any ID to see full details.`;
+      if (results.recentDaysApplied) {
+        md += `Scoped to the last **${results.recentDaysApplied} day${results.recentDaysApplied === 1 ? '' : 's'}**.\n\n`;
+      }
+      md += this.buildSummaryTable(items, true);
+      md += `\n\nUse \`getWorkItemsBatch\` to fetch only the fields you need for selected IDs.`;
 
       return formatMcpResponse(results, md, false, true);
     } catch (error) {
@@ -476,17 +524,15 @@ export class WorkItemTools {
       const items = results.workItems || [];
 
       if (items.length === 0) {
-        return formatMcpResponse(results, `## My Work Items\n\nNo work items assigned to you.\n\n💡 Use \`searchWorkItems\` or \`listWorkItems\` to find items across the project.`);
+        return formatMcpResponse(results, `## My Work Items\n\nNo work items assigned to you.\n\nUse \`searchWorkItems\` or \`listWorkItems\` to find items across the project.`);
       }
 
       let md = `## My Work Items\n\n**${items.length} item${items.length !== 1 ? 's' : ''}** assigned to you\n\n`;
-      const rows = items.map((wi: any) => {
-        const id = wi.id || 'N/A';
-        const url = wi.url || '-';
-        return [`#${id}`, url !== '-' ? `[Link](${url})` : '-'];
-      });
-      md += markdownTable(['ID', 'URL'], rows);
-      md += `\n\n💡 Use \`getWorkItemById\` with any ID to see full details.`;
+      if (results.recentDaysApplied) {
+        md += `Scoped to the last **${results.recentDaysApplied} day${results.recentDaysApplied === 1 ? '' : 's'}** by default.\n\n`;
+      }
+      md += this.buildSummaryTable(items, true);
+      md += `\n\nUse \`getWorkItemsBatch\` to fetch details for selected IDs.`;
 
       return formatMcpResponse(results, md, false, true);
     } catch (error) {
@@ -503,10 +549,10 @@ export class WorkItemTools {
       const workItem = await this.workItemService.createWorkItem(params);
 
       const typeEmoji = getWorkItemTypeEmoji(params.workItemType);
-      let md = `## ✅ Work Item Created\n\n`;
+      let md = `## Work Item Created\n\n`;
       md += `**#${workItem.id}** ${typeEmoji} ${params.workItemType}`;
-      if (workItem.fields?.['System.State']) md += ` | 🆕 ${workItem.fields['System.State']}`;
-      if (params.assignedTo) md += ` | 👤 ${params.assignedTo}`;
+      if (workItem.fields?.['System.State']) md += ` | ${workItem.fields['System.State']}`;
+      if (params.assignedTo) md += ` | ${params.assignedTo}`;
       md += `\n`;
       md += `**Title:** ${params.title}\n`;
       if (params.iterationPath) md += `**Sprint:** ${params.iterationPath}\n`;
@@ -526,7 +572,7 @@ export class WorkItemTools {
     try {
       const workItem = await this.workItemService.updateWorkItem(params);
 
-      let md = `## ✅ Work Item Updated\n\n**#${params.id}** updated\n\n`;
+      let md = `## Work Item Updated\n\n**#${params.id}** updated\n\n`;
       const fields = params.fields || {};
       const changedKeys = Object.keys(fields);
       if (changedKeys.length > 0) {
@@ -607,7 +653,7 @@ export class WorkItemTools {
       const comment = await this.workItemService.addWorkItemComment(params);
       const formatUsed = params.format || 'markdown';
 
-      const md = `## ✅ Comment Added\n\n**Work Item:** #${params.id} | **Format:** ${formatUsed}\n\n> ${truncateText(params.text, 100)}`;
+      const md = `## Comment Added\n\n**Work Item:** #${params.id} | **Format:** ${formatUsed}\n\n> ${truncateText(params.text, 100)}`;
 
       return formatMcpResponse(comment, md, false, true);
     } catch (error) {
@@ -634,7 +680,7 @@ export class WorkItemTools {
           format: params.format,
         });
 
-        const md = `## ✅ Comment Updated\n\n**Work Item:** #${params.id} | **Comment:** #${params.commentId} | **Format:** ${formatUsed}\n\n> ${truncateText(params.text, 100)}`;
+        const md = `## Comment Updated\n\n**Work Item:** #${params.id} | **Comment:** #${params.commentId} | **Format:** ${formatUsed}\n\n> ${truncateText(params.text, 100)}`;
         return formatMcpResponse(comment, md, false, true);
       } else {
         const comment = await this.workItemService.addWorkItemComment({
@@ -643,7 +689,7 @@ export class WorkItemTools {
           format: params.format,
         });
 
-        const md = `## ✅ Comment Added\n\n**Work Item:** #${params.id} | **Format:** ${formatUsed}\n\n> ${truncateText(params.text, 100)}`;
+        const md = `## Comment Added\n\n**Work Item:** #${params.id} | **Format:** ${formatUsed}\n\n> ${truncateText(params.text, 100)}`;
         return formatMcpResponse(comment, md, false, true);
       }
     } catch (error) {
@@ -660,7 +706,7 @@ export class WorkItemTools {
       const workItem = await this.workItemService.updateWorkItemState(params);
       const stateEmoji = getStateEmoji(params.state);
 
-      let md = `## ✅ State Updated\n\n**#${params.id}** → ${stateEmoji} ${params.state}`;
+      let md = `## State Updated\n\n**#${params.id}** -> ${stateEmoji} ${params.state}`;
       if (params.comment) md += `\n\n> ${truncateText(params.comment, 100)}`;
 
       return formatMcpResponse(workItem, md, false, true);
@@ -677,7 +723,7 @@ export class WorkItemTools {
     try {
       const workItem = await this.workItemService.assignWorkItem(params);
 
-      const md = `## ✅ Work Item Assigned\n\n**#${params.id}** → 👤 ${params.assignedTo}`;
+      const md = `## Work Item Assigned\n\n**#${params.id}** -> ${params.assignedTo}`;
 
       return formatMcpResponse(workItem, md, false, true);
     } catch (error) {
@@ -762,7 +808,7 @@ export class WorkItemTools {
         ? `**WI#${parsed.id}**`
         : `**${parsed.type.toUpperCase()}#${parsed.id}**`;
 
-      const md = `## ✅ Link Created\n\n**WI#${params.sourceId}** ↔ ${targetLabel} (${parsed.displayName})`;
+      const md = `## Link Created\n\n**WI#${params.sourceId}** <-> ${targetLabel} (${parsed.displayName})`;
 
       const structuredData = {
         sourceId: params.sourceId,
@@ -790,7 +836,7 @@ export class WorkItemTools {
       const updated = results.updated || [];
       const count = results.count || (created.length + updated.length);
 
-      let md = `## ✅ Bulk Operation Complete\n\n**${count} work items processed**`;
+      let md = `## Bulk Operation Complete\n\n**${count} work items processed**`;
       if (created.length > 0) md += ` | ${created.length} created`;
       if (updated.length > 0) md += ` | ${updated.length} updated`;
       md += '\n';
@@ -811,7 +857,7 @@ export class WorkItemTools {
     }
   }
 
-  // ── New Work Item Enhancement Tools ────────────────────────────
+  // New Work Item Enhancement Tools
 
   /**
    * Get multiple work items by IDs in a single call
@@ -893,18 +939,15 @@ export class WorkItemTools {
       let md = `## Query Results\n\n`;
       md += `**${workItems.length} work item${workItems.length !== 1 ? 's' : ''}** returned\n\n`;
 
-      const rows = workItems.map((wi: any) => {
-        const fields = wi.fields || {};
-        return [
-          `#${wi.id}`,
-          getWorkItemTypeEmoji(fields['System.WorkItemType'] || '') + ' ' + (fields['System.WorkItemType'] || '-'),
-          truncateText(fields['System.Title'] || '-', 50),
-          getStateEmoji(fields['System.State'] || '') + ' ' + (fields['System.State'] || '-'),
-          fields['System.AssignedTo']?.displayName || '-',
-        ];
-      });
+      if (result.queryType) {
+        md += `**Query Type:** ${result.queryType}\n\n`;
+      }
+      if (result.columns?.length) {
+        md += `**Saved Query Columns:** ${result.columns.join(', ')}\n\n`;
+      }
 
-      md += markdownTable(['ID', 'Type', 'Title', 'State', 'Assigned To'], rows);
+      md += this.buildSummaryTable(workItems);
+      md += `\n\nUse \`getWorkItemsBatch\` with the IDs above and an explicit field list to hydrate only what you need.`;
 
       return formatMcpResponse(result, md, false, true);
     } catch (error) {

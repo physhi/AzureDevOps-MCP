@@ -38,7 +38,7 @@ export class BuildService extends AzureDevOpsService {
       ? BuildQueryOrder.StartTimeAscending
       : BuildQueryOrder.StartTimeDescending;
 
-    const builds = await buildApi.getBuilds(
+    const builds = await this.withAuthRetry(() => buildApi.getBuilds(
       project,
       params.definitions,       // definitions
       undefined,                // queues
@@ -60,7 +60,17 @@ export class BuildService extends AzureDevOpsService {
       undefined,                // buildIds
       params.repositoryId,      // repositoryId
       params.repositoryType,    // repositoryType
-    );
+    ), {
+      operationName: 'builds.list',
+      details: {
+        project,
+        top: params.top || 25,
+        branchName: params.branchName,
+        repositoryId: params.repositoryId,
+        statusFilter: params.statusFilter,
+        resultFilter: params.resultFilter,
+      },
+    });
 
     return builds || [];
   }
@@ -71,7 +81,13 @@ export class BuildService extends AzureDevOpsService {
   public async getBuild(params: GetBuildParams): Promise<any> {
     const buildApi = await this.getBuildApi();
     const project = params.project || this.config.project;
-    return await buildApi.getBuild(project, params.buildId);
+    return await this.withAuthRetry(() => buildApi.getBuild(project, params.buildId), {
+      operationName: 'builds.get',
+      details: {
+        project,
+        buildId: params.buildId,
+      },
+    });
   }
 
   /**
@@ -83,18 +99,32 @@ export class BuildService extends AzureDevOpsService {
 
     if (params.logId !== undefined) {
       // Get specific log lines
-      const lines = await buildApi.getBuildLogLines(
+      const logId = params.logId;
+      const lines = await this.withAuthRetry(() => buildApi.getBuildLogLines(
         project,
         params.buildId,
-        params.logId,
+        logId,
         params.startLine,
         params.endLine,
-      );
-      return { logId: params.logId, lines: lines || [] };
+      ), {
+        operationName: 'builds.logs.lines',
+        details: {
+          project,
+          buildId: params.buildId,
+          logId,
+        },
+      });
+      return { logId, lines: lines || [] };
     }
 
     // Get all log metadata
-    const logs = await buildApi.getBuildLogs(project, params.buildId);
+    const logs = await this.withAuthRetry(() => buildApi.getBuildLogs(project, params.buildId), {
+      operationName: 'builds.logs.list',
+      details: {
+        project,
+        buildId: params.buildId,
+      },
+    });
     return logs || [];
   }
 
@@ -105,12 +135,19 @@ export class BuildService extends AzureDevOpsService {
     const buildApi = await this.getBuildApi();
     const project = params.project || this.config.project;
 
-    const changes = await buildApi.getBuildChanges(
+    const changes = await this.withAuthRetry(() => buildApi.getBuildChanges(
       project,
       params.buildId,
       undefined,       // continuationToken
       params.top || 50,
-    );
+    ), {
+      operationName: 'builds.changes.list',
+      details: {
+        project,
+        buildId: params.buildId,
+        top: params.top || 50,
+      },
+    });
     return changes || [];
   }
 
@@ -121,7 +158,7 @@ export class BuildService extends AzureDevOpsService {
     const buildApi = await this.getBuildApi();
     const project = params.project || this.config.project;
 
-    const definitions = await buildApi.getDefinitions(
+    const definitions = await this.withAuthRetry(() => buildApi.getDefinitions(
       project,
       params.name,              // name filter
       params.repositoryId,      // repositoryId
@@ -136,7 +173,16 @@ export class BuildService extends AzureDevOpsService {
       undefined,                // notBuiltAfter
       undefined,                // includeAllProperties
       params.includeLatestBuilds, // includeLatestBuilds
-    );
+    ), {
+      operationName: 'builds.definitions.list',
+      details: {
+        project,
+        top: params.top || 25,
+        repositoryId: params.repositoryId,
+        path: params.path,
+        name: params.name,
+      },
+    });
     return definitions || [];
   }
 
@@ -147,14 +193,20 @@ export class BuildService extends AzureDevOpsService {
     const buildApi = await this.getBuildApi();
     const project = params.project || this.config.project;
 
-    return await buildApi.getDefinition(
+    return await this.withAuthRetry(() => buildApi.getDefinition(
       project,
       params.definitionId,
       undefined,                   // revision
       undefined,                   // minMetricsTime
       undefined,                   // propertyFilters
       params.includeLatestBuilds,  // includeLatestBuilds
-    );
+    ), {
+      operationName: 'builds.definitions.get',
+      details: {
+        project,
+        definitionId: params.definitionId,
+      },
+    });
   }
 
   /**
@@ -170,7 +222,14 @@ export class BuildService extends AzureDevOpsService {
       ...(params.parameters && { parameters: JSON.stringify(params.parameters) }),
     };
 
-    return await buildApi.queueBuild(build, project);
+    return await this.withAuthRetry(() => buildApi.queueBuild(build, project), {
+      operationName: 'builds.queue',
+      details: {
+        project,
+        definitionId: params.definitionId,
+        sourceBranch: params.sourceBranch,
+      },
+    });
   }
 
   /**
@@ -179,7 +238,13 @@ export class BuildService extends AzureDevOpsService {
   public async getBuildArtifacts(params: ListBuildArtifactsParams): Promise<any[]> {
     const buildApi = await this.getBuildApi();
     const project = params.project || this.config.project;
-    const artifacts = await buildApi.getArtifacts(project, params.buildId);
+    const artifacts = await this.withAuthRetry(() => buildApi.getArtifacts(project, params.buildId), {
+      operationName: 'builds.artifacts.list',
+      details: {
+        project,
+        buildId: params.buildId,
+      },
+    });
     return artifacts || [];
   }
 
@@ -189,17 +254,43 @@ export class BuildService extends AzureDevOpsService {
   public async getBuildTimeline(params: GetBuildTimelineParams): Promise<any> {
     const buildApi = await this.getBuildApi();
     const project = params.project || this.config.project;
-    return await buildApi.getBuildTimeline(project, params.buildId);
+    return await this.withAuthRetry(() => buildApi.getBuildTimeline(project, params.buildId), {
+      operationName: 'builds.timeline.get',
+      details: {
+        project,
+        buildId: params.buildId,
+      },
+    });
   }
 
   /**
    * Get work items associated with a build.
    */
-  public async getBuildWorkItems(params: GetBuildWorkItemsParams): Promise<any[]> {
+  public async getBuildWorkItems(params: GetBuildWorkItemsParams): Promise<any> {
+    const throttleNotices: import('./AzureDevOpsService').ThrottleNotice[] = [];
     const buildApi = await this.getBuildApi();
     const project = params.project || this.config.project;
-    const refs = await buildApi.getBuildWorkItemsRefs(project, params.buildId, params.top || 50);
-    return refs || [];
+    const refs = await this.withAuthRetry(() => buildApi.getBuildWorkItemsRefs(project, params.buildId, params.top || 50), {
+      operationName: 'builds.workItems.refs',
+      details: {
+        project,
+        buildId: params.buildId,
+        top: params.top || 50,
+      },
+    }, throttleNotices);
+
+    const workItems = await this.hydrateWorkItemRefs(refs || [], {
+      fields: params.fields,
+      operationName: 'builds.workItems.batchHydrate',
+      project,
+      throttleAccumulator: throttleNotices,
+    });
+
+    return {
+      workItems,
+      count: workItems.length,
+      throttleInfo: AzureDevOpsService.buildThrottleInfo(throttleNotices),
+    };
   }
 
   /**
@@ -213,14 +304,26 @@ export class BuildService extends AzureDevOpsService {
     // Get policy evaluations to find build IDs
     const policyApi = await this.connection.getPolicyApi();
     const coreApi = await this.connection.getCoreApi();
-    const projectDetails = await coreApi.getProject(project);
+    const projectDetails = await this.withAuthRetry(() => coreApi.getProject(project), {
+      operationName: 'builds.pullRequest.project',
+      details: {
+        project,
+        pullRequestId: params.pullRequestId,
+      },
+    });
     const projectId = projectDetails?.id;
     if (!projectId) {
       throw new Error(`Could not resolve project ID for "${project}"`);
     }
 
     const artifactId = `vstfs:///CodeReview/CodeReviewId/${projectId}%2F${params.pullRequestId}`;
-    const evaluations = await policyApi.getPolicyEvaluations(project, artifactId);
+    const evaluations = await this.withAuthRetry(() => policyApi.getPolicyEvaluations(project, artifactId), {
+      operationName: 'builds.pullRequest.policyEvaluations',
+      details: {
+        project,
+        pullRequestId: params.pullRequestId,
+      },
+    });
 
     // Extract build IDs from build validation policy evaluations
     const buildInfos: Array<{ buildId: number; definitionName: string; status: string | undefined }> = [];
@@ -256,7 +359,7 @@ export class BuildService extends AzureDevOpsService {
           const pr = await gitApi.getPullRequest(repositoryId, params.pullRequestId, project);
           const branchName = pr.sourceRefName;
           if (branchName) {
-            const builds = await buildApi.getBuilds(
+            const builds = await this.withAuthRetry(() => buildApi.getBuilds(
               project,
               [buildDefinitionId],
               undefined, undefined, undefined, undefined, undefined, undefined,
@@ -265,7 +368,14 @@ export class BuildService extends AzureDevOpsService {
               undefined, undefined, undefined,
               BuildQueryOrder.StartTimeDescending,
               branchName,
-            );
+            ), {
+              operationName: 'builds.pullRequest.validationBuilds',
+              details: {
+                project,
+                pullRequestId: params.pullRequestId,
+                definitionId: buildDefinitionId,
+              },
+            });
             if (builds && builds.length > 0) {
               buildInfos.push({
                 buildId: builds[0].id!,
@@ -283,7 +393,14 @@ export class BuildService extends AzureDevOpsService {
     // Fetch build details and optionally timeline for each build (parallel)
     const builds = await Promise.all(buildInfos.map(async (info) => {
       try {
-        const build = await buildApi.getBuild(project, info.buildId);
+        const build = await this.withAuthRetry(() => buildApi.getBuild(project, info.buildId), {
+          operationName: 'builds.pullRequest.buildDetails',
+          details: {
+            project,
+            buildId: info.buildId,
+            pullRequestId: params.pullRequestId,
+          },
+        });
         const buildResult: any = {
           ...build,
           policyDefinitionName: info.definitionName,
@@ -292,7 +409,13 @@ export class BuildService extends AzureDevOpsService {
 
         if (params.includeTimeline) {
           try {
-            const timeline = await buildApi.getBuildTimeline(project, info.buildId);
+            const timeline = await this.withAuthRetry(() => buildApi.getBuildTimeline(project, info.buildId), {
+              operationName: 'builds.pullRequest.timeline',
+              details: {
+                project,
+                buildId: info.buildId,
+              },
+            });
             buildResult.timeline = timeline;
           } catch {
             buildResult.timeline = null;
@@ -301,7 +424,13 @@ export class BuildService extends AzureDevOpsService {
 
         if (params.includeLogs) {
           try {
-            const logs = await buildApi.getBuildLogs(project, info.buildId);
+            const logs = await this.withAuthRetry(() => buildApi.getBuildLogs(project, info.buildId), {
+              operationName: 'builds.pullRequest.logs',
+              details: {
+                project,
+                buildId: info.buildId,
+              },
+            });
             buildResult.logMetadata = logs;
           } catch {
             buildResult.logMetadata = null;

@@ -20,6 +20,7 @@ import {
   formatFullDate,
   truncateText,
   markdownTable,
+  buildWorkItemSummaryTable,
 } from '../utils/formatHelpers';
 
 export class BuildTools {
@@ -344,23 +345,19 @@ export class BuildTools {
 
   public async getBuildWorkItems(params: GetBuildWorkItemsParams): Promise<McpResponse> {
     try {
-      const workItems = await this.buildService.getBuildWorkItems(params);
+      const result = await this.buildService.getBuildWorkItems(params);
+      const workItems = result.workItems || [];
 
       if (workItems.length === 0) {
-        return formatMcpResponse(workItems, `## Build #${params.buildId} - Work Items\n\nNo associated work items found.`);
+        return formatMcpResponse(result, `## Build #${params.buildId} - Work Items\n\nNo associated work items found.`);
       }
 
       let md = `## Build #${params.buildId} - Work Items\n\n`;
       md += `**${workItems.length} work item${workItems.length !== 1 ? 's' : ''}**\n\n`;
 
-      const rows = workItems.map((wi: any) => [
-        `#${wi.id || 'N/A'}`,
-        wi.url ? `[View](${wi.url})` : '-',
-      ]);
+      md += buildWorkItemSummaryTable(workItems);
 
-      md += markdownTable(['ID', 'Link'], rows);
-
-      return formatMcpResponse(workItems, md, false, true);
+      return formatMcpResponse(result, md, false, true);
     } catch (error: any) {
       return formatErrorResponse(error);
     }

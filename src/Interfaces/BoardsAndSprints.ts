@@ -52,6 +52,7 @@ export interface GetCurrentSprintParams {
 export interface GetSprintWorkItemsParams {
   teamId?: string;
   sprintId: string;
+  fields?: string[];
 }
 
 /**
