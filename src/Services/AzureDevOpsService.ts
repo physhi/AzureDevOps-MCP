@@ -1,5 +1,7 @@
 import * as azdev from "azure-devops-node-api";
+import * as fs from "fs";
 import * as os from "os";
+import * as path from "path";
 import { WorkItemTrackingApi } from "azure-devops-node-api/WorkItemTrackingApi";
 import {
   AzureDevOpsConfig,
@@ -15,7 +17,17 @@ import {
 } from "azure-devops-node-api/interfaces/common/VsoBaseInterfaces";
 import { TokenCredentialAuthHandler } from "./EntraAuthHandler";
 import { isRepositoryId } from "../utils/repositoryResolver";
-import packageJson from "../../package.json";
+
+const PACKAGE_VERSION = (() => {
+  try {
+    const packageJsonPath = path.resolve(__dirname, "../../package.json");
+    const packageJsonContent = fs.readFileSync(packageJsonPath, "utf8");
+    const packageJson = JSON.parse(packageJsonContent) as { version?: string };
+    return packageJson.version || "0.0.0";
+  } catch {
+    return "0.0.0";
+  }
+})();
 
 export interface ThrottleNotice {
   waitMs: number;
@@ -150,7 +162,7 @@ export class AzureDevOpsService {
     } catch {
       // Best effort only; keep the client traceable even if user info is unavailable.
     }
-    const userAgent = `azuredevops-mcp/${packageJson.version} (${hostName}; ${userName})`;
+    const userAgent = `azuredevops-mcp/${PACKAGE_VERSION} (${hostName}; ${userName})`;
     requestOptions.headers = {
       'User-Agent': userAgent,
     };
