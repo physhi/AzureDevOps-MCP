@@ -29,6 +29,14 @@ import {
 } from '../Interfaces/WorkItems';
 import { ThrottleNotice } from './AzureDevOpsService';
 import { markdownToHtml, unescapeHtmlEntities, normalizeLiteralEscapes } from '../utils/formatHelpers';
+import {
+  analyzeWiql,
+  buildListWorkItemsUsageProfile,
+  buildMyWorkItemsUsageProfile,
+  buildRecentWorkItemsUsageProfile,
+  buildSavedQueryUsageProfile,
+  buildSearchWorkItemsUsageProfile,
+} from '../utils/apiUsageGuidance';
 
 /** Rich-text fields that expect HTML — markdown is auto-converted for these */
 const RICH_TEXT_FIELDS = new Set([
@@ -134,6 +142,8 @@ export class WorkItemService extends AzureDevOpsService {
     try {
       const serverTop = top ?? 100;
       const scopedQuery = this.applyRecentChangesFilter(wiqlQuery, days);
+      const requestedFields = this.getRequestedFields(fields, this.DEFAULT_FIELDS);
+      const queryAnalysis = analyzeWiql(scopedQuery.query, serverTop, requestedFields.length);
       const cacheKey = this.buildWiqlCacheKey(scopedQuery.query, serverTop);
       const cached = this.getCachedWiql(cacheKey);
       if (cached) return cached;
@@ -161,6 +171,12 @@ export class WorkItemService extends AzureDevOpsService {
         effectiveQuery: scopedQuery.query,
         recentDaysApplied: scopedQuery.recentDaysApplied,
         throttleInfo: AzureDevOpsService.buildThrottleInfo(throttleNotices),
+        apiUsage: buildListWorkItemsUsageProfile({
+          resultCount: hydratedWorkItems.length,
+          top: serverTop,
+          requestedFieldCount: requestedFields.length,
+          queryAnalysis,
+        }),
       };
 
       this.setCachedWiql(cacheKey, response);
@@ -389,6 +405,7 @@ export class WorkItemService extends AzureDevOpsService {
     try {
       const serverTop = params.top || 25;
       const recentDays = this.normalizeRecentDays(params.days);
+      const requestedFields = this.getRequestedFields(params.fields, this.DEFAULT_FIELDS);
       const searchText = this.escapeWiqlLiteral(params.searchText);
       const query = `SELECT [System.Id], [System.Title], [System.State], [System.ChangedDate]
                     FROM WorkItems
@@ -432,6 +449,12 @@ export class WorkItemService extends AzureDevOpsService {
           recentDaysApplied: recentDays,
           throttleInfo: AzureDevOpsService.buildThrottleInfo(throttleNotices),
           advisory,
+          apiUsage: buildSearchWorkItemsUsageProfile({
+            resultCount: transformedWorkItems.length,
+            top: serverTop,
+            requestedFieldCount: requestedFields.length,
+            query,
+          }),
         };
         this.setCachedWiql(cacheKey, response);
         return response;
@@ -446,6 +469,12 @@ export class WorkItemService extends AzureDevOpsService {
         recentDaysApplied: recentDays,
         throttleInfo: AzureDevOpsService.buildThrottleInfo(throttleNotices),
         advisory,
+        apiUsage: buildSearchWorkItemsUsageProfile({
+          resultCount: 0,
+          top: serverTop,
+          requestedFieldCount: requestedFields.length,
+          query,
+        }),
       };
       this.setCachedWiql(cacheKey, emptyResponse);
       return emptyResponse;
@@ -464,6 +493,7 @@ export class WorkItemService extends AzureDevOpsService {
       const top = params.top || 10;
       const skip = params.skip || 0;
       const serverTop = skip + top;
+      const requestedFields = this.getRequestedFields(params.fields, this.DEFAULT_FIELDS);
       const query = `SELECT [System.Id], [System.Title], [System.State], [System.ChangedDate]
                     FROM WorkItems
                     WHERE [System.TeamProject] = @project
@@ -497,6 +527,12 @@ export class WorkItemService extends AzureDevOpsService {
         count: hydratedWorkItems.length,
         recentDaysApplied: days,
         throttleInfo: AzureDevOpsService.buildThrottleInfo(throttleNotices),
+        apiUsage: buildRecentWorkItemsUsageProfile({
+          resultCount: hydratedWorkItems.length,
+          top,
+          requestedFieldCount: requestedFields.length,
+          days,
+        }),
       };
       this.setCachedWiql(cacheKey, response);
       return response;
@@ -517,6 +553,7 @@ export class WorkItemService extends AzureDevOpsService {
       }
       const serverTop = params.top || 50;
       const recentDays = this.normalizeRecentDays(params.days);
+      const requestedFields = this.getRequestedFields(params.fields, this.DEFAULT_FIELDS);
 
       const query = `SELECT [System.Id], [System.Title], [System.State], [System.CreatedDate]
                     FROM WorkItems
@@ -552,6 +589,13 @@ export class WorkItemService extends AzureDevOpsService {
         count: hydratedWorkItems.length,
         recentDaysApplied: recentDays,
         throttleInfo: AzureDevOpsService.buildThrottleInfo(throttleNotices),
+        apiUsage: buildMyWorkItemsUsageProfile({
+          resultCount: hydratedWorkItems.length,
+          top: serverTop,
+          requestedFieldCount: requestedFields.length,
+          days: recentDays,
+          state: params.state,
+        }),
       };
       this.setCachedWiql(cacheKey, response);
       return response;
@@ -963,6 +1007,7 @@ export class WorkItemService extends AzureDevOpsService {
     try {
       const throttleNotices: ThrottleNotice[] = [];
       const witApi = await this.getWorkItemTrackingApi();
+      const requestedFields = this.getRequestedFields(params.fields, this.DEFAULT_FIELDS);
 
       const queryResult = await this.withAuthRetry(() => witApi.queryById(
         params.queryId,
@@ -973,14 +1018,22 @@ export class WorkItemService extends AzureDevOpsService {
       }, throttleNotices);
 
       if (!queryResult || !queryResult.workItems || queryResult.workItems.length === 0) {
+        const queryType = queryResult?.queryType !== undefined ? String(queryResult.queryType) : undefined;
         return {
           workItems: [],
           count: 0,
-          queryType: queryResult?.queryType,
+          queryType,
           columns: queryResult?.columns?.map((c: any) => c.referenceName),
           throttleInfo: AzureDevOpsService.buildThrottleInfo(throttleNotices),
+          apiUsage: buildSavedQueryUsageProfile({
+            resultCount: 0,
+            requestedFieldCount: requestedFields.length,
+            queryType,
+          }),
         };
       }
+
+      const queryType = queryResult.queryType !== undefined ? String(queryResult.queryType) : undefined;
 
       const hydratedWorkItems = await this.hydrateWorkItemRefs(queryResult.workItems, {
         fields: params.fields, defaults: this.DEFAULT_FIELDS, operationName: 'workItems.savedQuery.batchHydrate',
@@ -990,9 +1043,14 @@ export class WorkItemService extends AzureDevOpsService {
       return {
         workItems: hydratedWorkItems,
         count: hydratedWorkItems.length,
-        queryType: queryResult.queryType,
+        queryType,
         columns: queryResult.columns?.map((c: any) => c.referenceName),
         throttleInfo: AzureDevOpsService.buildThrottleInfo(throttleNotices),
+        apiUsage: buildSavedQueryUsageProfile({
+          resultCount: hydratedWorkItems.length,
+          requestedFieldCount: requestedFields.length,
+          queryType,
+        }),
       };
     } catch (error) {
       console.error('Error executing saved query:', error);

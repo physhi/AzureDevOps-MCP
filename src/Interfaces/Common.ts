@@ -16,6 +16,39 @@ export interface McpResponse {
   [key: string]: any; // Add index signature for backward compatibility
 }
 
+function buildApiUsageBanner(apiUsage: any): string {
+  if (!apiUsage) {
+    return '';
+  }
+
+  const estimatedCalls = apiUsage.estimatedAdoCalls;
+  const bestPractices = Array.isArray(apiUsage.bestPractices) ? apiUsage.bestPractices.slice(0, 3) : [];
+  const avoid = Array.isArray(apiUsage.avoid) ? apiUsage.avoid.slice(0, 2) : [];
+  const alternatives = Array.isArray(apiUsage.recommendedAlternativeTools)
+    ? apiUsage.recommendedAlternativeTools.slice(0, 3)
+    : [];
+
+  let banner = `Usage profile: **${apiUsage.relativeCost || 'unknown'}** relative Azure DevOps cost`;
+  if (typeof estimatedCalls === 'number') {
+    banner += `, about **${estimatedCalls}** API call${estimatedCalls === 1 ? '' : 's'}`;
+  }
+  banner += `. ${apiUsage.tstuGuidance || ''}`;
+
+  if (bestPractices.length > 0) {
+    banner += `\n\nBest use:\n- ${bestPractices.join('\n- ')}`;
+  }
+
+  if (avoid.length > 0) {
+    banner += `\n\nAvoid when possible:\n- ${avoid.join('\n- ')}`;
+  }
+
+  if (alternatives.length > 0) {
+    banner += `\n\nBetter alternatives for some cases:\n- ${alternatives.join('\n- ')}`;
+  }
+
+  return `${banner}\n\n---\n\n`;
+}
+
 /**
  * Formats a response for MCP compatibility
  * @param data The data to format
@@ -29,13 +62,14 @@ export function formatMcpResponse(data: any, message?: string, isError = false, 
   // Only fall back to JSON dump when no message is provided at all
   const hasMessage = message && message.length > 0;
   const throttleInfo = data?.throttleInfo;
+  const apiUsageBanner = buildApiUsageBanner(data?.apiUsage);
   const throttleBanner = throttleInfo?.throttled
     ? `Warning: Azure DevOps throttled this operation. Waited ${(throttleInfo.totalWaitMs / 1000).toFixed(1)}s across ${throttleInfo.retryCount} retr${throttleInfo.retryCount === 1 ? 'y' : 'ies'} before continuing. This usually means too many requests are being sent in a short period.\n\n---\n\n`
     : '';
 
   const response: McpResponse = {
     content: hasMessage
-      ? [{ type: "text", text: `${throttleBanner}${message}` }]
+      ? [{ type: "text", text: `${throttleBanner}${apiUsageBanner}${message}` }]
       : [
           { type: "text", text: isError ? "Error occurred" : "Request successful" },
           { type: "text", text: typeof data === 'string' ? data : JSON.stringify(data, null, 2) }

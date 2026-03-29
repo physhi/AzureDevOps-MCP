@@ -117,6 +117,32 @@ export class WorkItemTools {
     return markdownTable(headers, rows);
   }
 
+  private renderQueryAuthoringGuide(apiUsage: any): string {
+    const queryAuthoring = apiUsage?.queryAuthoring;
+    if (!queryAuthoring) {
+      return '';
+    }
+
+    let md = `\n\n**Performance-first WIQL guidance**\n`;
+
+    if (Array.isArray(queryAuthoring.riskFlags) && queryAuthoring.riskFlags.length > 0) {
+      md += `\nCurrent query risk flags:\n- ${queryAuthoring.riskFlags.join('\n- ')}\n`;
+    }
+
+    if (Array.isArray(queryAuthoring.bestPractices) && queryAuthoring.bestPractices.length > 0) {
+      md += `\nPreferred patterns:\n- ${queryAuthoring.bestPractices.slice(0, 4).join('\n- ')}\n`;
+    }
+
+    if (Array.isArray(queryAuthoring.recommendedTemplates) && queryAuthoring.recommendedTemplates.length > 0) {
+      md += `\nExamples that avoid CONTAINS:\n`;
+      queryAuthoring.recommendedTemplates.slice(0, 3).forEach((template: any) => {
+        md += `\n${template.label}: ${template.rationale}\n\n\`\`\`sql\n${template.query}\n\`\`\`\n`;
+      });
+    }
+
+    return md;
+  }
+
   /**
    * List work items based on a WIQL query
    */
@@ -131,6 +157,7 @@ export class WorkItemTools {
           md += `\n\nScoped to the last **${response.recentDaysApplied} day${response.recentDaysApplied === 1 ? '' : 's'}** by default.`;
         }
         md += `\n\nCheck your query syntax, widen the date window, or broaden the filter criteria.`;
+        md += this.renderQueryAuthoringGuide(response.apiUsage);
         return formatMcpResponse(response, md);
       }
 
@@ -143,6 +170,7 @@ export class WorkItemTools {
         md += `\n\n**Effective WIQL**\n\n\`\`\`sql\n${response.effectiveQuery}\n\`\`\``;
       }
       md += `\n\nUse \`getWorkItemsBatch\` with selected IDs and fields when you need details.`;
+      md += this.renderQueryAuthoringGuide(response.apiUsage);
 
       return formatMcpResponse(response, md, false, true);
     } catch (error) {
@@ -373,14 +401,12 @@ export class WorkItemTools {
     if (!results || !results.workItems || results.workItems.length === 0) {
       const recentWindow = results?.recentDaysApplied ? ` in the last ${results.recentDaysApplied} day${results.recentDaysApplied === 1 ? '' : 's'}` : '';
       const wiqlBlock = results?.wiql ? `\n\n**Generated WIQL**\n\n\`\`\`sql\n${results.wiql}\n\`\`\`` : '';
-      return {
-        content: [
-          {
-            type: "text",
-            text: `## Search Results\n\nNo work items found matching "${results?.searchQuery || 'your search'}"${recentWindow}.\n\nContains-based search is expensive in Azure DevOps. Prefer focused WIQL via \`listWorkItems\` or a saved query when possible.${wiqlBlock}`
-          }
-        ]
-      };
+      return formatMcpResponse(
+        results,
+        `## Search Results\n\nNo work items found matching "${results?.searchQuery || 'your search'}"${recentWindow}.\n\nContains-based search is expensive in Azure DevOps. Prefer focused WIQL via \`listWorkItems\` or a saved query when possible.${wiqlBlock}`,
+        false,
+        true,
+      );
     }
 
     // Calculate summary statistics upfront
@@ -461,6 +487,7 @@ export class WorkItemTools {
       advisory: results.advisory,
       wiql: results.wiql,
       throttleInfo: results.throttleInfo,
+      apiUsage: results.apiUsage,
       workItems: results.workItems.map((item: any) => ({
         id: item.id,
         teamProject: item.teamProject,

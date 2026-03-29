@@ -15,6 +15,7 @@ import {
   GetBuildWorkItemsParams,
   GetPullRequestBuildsParams,
 } from '../Interfaces/Pipelines';
+import { buildBuildWorkItemsUsageProfile } from '../utils/apiUsageGuidance';
 
 export class BuildService extends AzureDevOpsService {
   constructor(config: AzureDevOpsConfig) {
@@ -270,6 +271,7 @@ export class BuildService extends AzureDevOpsService {
     const throttleNotices: import('./AzureDevOpsService').ThrottleNotice[] = [];
     const buildApi = await this.getBuildApi();
     const project = params.project || this.config.project;
+    const requestedFields = this.getRequestedFields(params.fields);
     const refs = await this.withAuthRetry(() => buildApi.getBuildWorkItemsRefs(project, params.buildId, params.top || 50), {
       operationName: 'builds.workItems.refs',
       details: {
@@ -290,6 +292,10 @@ export class BuildService extends AzureDevOpsService {
       workItems,
       count: workItems.length,
       throttleInfo: AzureDevOpsService.buildThrottleInfo(throttleNotices),
+      apiUsage: buildBuildWorkItemsUsageProfile({
+        resultCount: workItems.length,
+        requestedFieldCount: requestedFields.length,
+      }),
     };
   }
 

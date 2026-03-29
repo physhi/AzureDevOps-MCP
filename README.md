@@ -161,6 +161,82 @@ Could not find repository "my-repo" in project "MyProject".
 
 Set `ENABLE_STRUCTURED_CONTENT=true` to include machine-readable JSON in the `structuredContent` field alongside the markdown `content`. This is useful for programmatic consumers that need typed data while still having a human-readable fallback.
 
+For performance-sensitive tools, the raw and structured payload now also includes an `apiUsage` object that reports:
+- relative Azure DevOps cost (`low`, `medium`, `high`, `very-high`)
+- estimated Azure DevOps API round-trips for the specific call shape
+- best-practice guidance and lower-cost alternatives
+- WIQL authoring advice for query tools
+
+Exact Azure DevOps TSTU usage is not exposed by a deterministic formula. The server therefore reports relative cost and estimated round-trips, not a fake exact TSTU number.
+
+## Performance Guidance
+
+Azure DevOps rate limits are enforced using throughput units over a sliding 5-minute window. Query cost varies with organization size, returned ID count, requested fields, and whether you are using expensive operators like `CONTAINS`, `EVER`, `WAS EVER`, or link queries.
+
+Prefer these patterns:
+- Use `listWorkItems` for structured discovery with exact filters.
+- Use `getQueryResults` for recurring team queries that already exist as saved queries.
+- Use `getRecentlyUpdatedWorkItems` or `getMyWorkItems` for bounded slices instead of broad project scans.
+- Use `getWorkItemsBatch` after you already know the IDs you care about.
+- Request only the fields you actually need.
+- Honor `Retry-After`, `X-RateLimit-Limit`, `X-RateLimit-Remaining`, `X-RateLimit-Reset`, and `X-RateLimit-Delay` when present.
+
+Avoid these patterns unless they are genuinely required:
+- `CONTAINS` or `CONTAINS WORDS` for routine listing.
+- `EVER` or `WAS EVER` for normal current-state queries.
+- Unbounded queries with no `ChangedDate` or `CreatedDate` filter.
+- Large `top` values paired with large field lists.
+- Repeating sprint/build context lookups in tight loops.
+
+### Performance-First WIQL Patterns
+
+Use exact filters and bounded date windows instead of substring search.
+
+```sql
+SELECT [System.Id]
+FROM WorkItems
+WHERE
+  [System.TeamProject] = @project
+  AND [System.WorkItemType] = 'Bug'
+  AND [System.State] IN ('New', 'Active', 'Resolved')
+  AND [System.ChangedDate] >= @Today - 30
+ORDER BY [System.ChangedDate] DESC
+```
+
+```sql
+SELECT [System.Id]
+FROM WorkItems
+WHERE
+  [System.TeamProject] = @project
+  AND [System.AreaPath] UNDER 'Contoso\\Platform'
+  AND [System.State] <> 'Closed'
+  AND [System.ChangedDate] >= @Today - 14
+ORDER BY [System.ChangedDate] DESC
+```
+
+```sql
+SELECT [System.Id]
+FROM WorkItems
+WHERE
+  [System.TeamProject] = @project
+  AND [System.AssignedTo] = @Me
+  AND [System.IterationPath] = @CurrentIteration('[Contoso]\\Web')
+  AND [System.State] <> 'Closed'
+ORDER BY [System.ChangedDate] DESC
+```
+
+Avoid this as a default listing pattern:
+
+```sql
+SELECT [System.Id]
+FROM WorkItems
+WHERE
+  [System.TeamProject] = @project
+  AND [System.Title] CONTAINS 'login'
+```
+
+Use free-text search only as a fallback discovery step, then rewrite the generated WIQL into exact fielded filters.
+
 ## Installation
 
 ### Quick Start (npm)

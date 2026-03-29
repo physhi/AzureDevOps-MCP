@@ -94,12 +94,12 @@ async function main() {
 
     // Register Work Item Tools
     allowedTools.has("listWorkItems") && server.tool("listWorkItems",
-      "List work items based on a WIQL query. By default, flat queries are scoped to recently changed work items.",
+      "Preferred structured work item query path. Usually 1 WIQL call plus 1 batched hydrate call for up to 200 returned IDs. Use exact filters like =, IN, UNDER, @Me, @CurrentIteration, and bounded date windows. Avoid CONTAINS, EVER, and broad unbounded scans for routine listing.",
       {
-        query: z.string().describe("WIQL query to get work items"),
+        query: z.string().describe("Performance-first WIQL. Keep [System.TeamProject] = @project and add narrow filters such as WorkItemType, State, AssignedTo, AreaPath UNDER, IterationPath UNDER, or ChangedDate >= @Today - N. Avoid CONTAINS for routine listing."),
         top: z.coerce.number().optional().describe("Maximum number of work items to return (default 100)"),
         days: z.coerce.number().optional().describe("For flat WorkItems queries, scope to items changed in the last N days (default 7)"),
-        fields: z.preprocess(coerceArray, z.array(z.string()).optional()).describe("Optional field list to batch-fetch for the returned items. Defaults to a basic summary field set.")
+        fields: z.preprocess(coerceArray, z.array(z.string()).optional()).describe("Optional field list to batch-fetch for the returned items. Request only the fields you actually need. Defaults to a basic summary field set.")
       },
       async (params, extra) => {
         const result = await workItemTools.listWorkItems({ query: params.query, top: params.top, days: params.days, fields: params.fields });
@@ -129,12 +129,12 @@ async function main() {
     );
     
     allowedTools.has("searchWorkItems") && server.tool("searchWorkItems",
-      "Search for work items by text. Uses CONTAINS-based WIQL, returns basic summary fields via a batched fetch, and includes the generated WIQL so callers can move to focused queries.",
+      "Fallback free-text discovery only. Uses CONTAINS-based WIQL, so it is usually more expensive than listWorkItems or getQueryResults. Keep top small, keep the day window tight, and rewrite the generated WIQL into structured filters after discovery.",
       {
         searchText: z.string().describe("Text to search for in work items"),
         top: z.coerce.number().optional().describe("Maximum number of work items to return (default 25)"),
         days: z.coerce.number().optional().describe("Scope search to items changed in the last N days (default 7)"),
-        fields: z.preprocess(coerceArray, z.array(z.string()).optional()).describe("Optional field list to batch-fetch for matched items. Defaults to a basic summary field set.")
+        fields: z.preprocess(coerceArray, z.array(z.string()).optional()).describe("Optional field list to batch-fetch for matched items. Keep this small during free-text search. Defaults to a basic summary field set.")
       },
       async (params, extra) => {
         const result = await workItemTools.searchWorkItems(params);
@@ -148,12 +148,12 @@ async function main() {
     );
     
     allowedTools.has("getRecentlyUpdatedWorkItems") && server.tool("getRecentlyUpdatedWorkItems",
-      "Get recently updated work items",
+      "Low-cost recent-change slice. Prefer this over a broad listWorkItems scan when you only need fresh activity.",
       {
         top: z.coerce.number().optional().describe("Maximum number of work items to return"),
         skip: z.coerce.number().optional().describe("Number of work items to skip"),
         days: z.coerce.number().optional().describe("Number of days to look back (default 7)"),
-        fields: z.preprocess(coerceArray, z.array(z.string()).optional()).describe("Optional field list to batch-fetch for returned items. Defaults to a basic summary field set.")
+        fields: z.preprocess(coerceArray, z.array(z.string()).optional()).describe("Optional field list to batch-fetch for returned items. Keep this narrow for polling or repeated refreshes. Defaults to a basic summary field set.")
       },
       async (params, extra) => {
         const result = await workItemTools.getRecentlyUpdatedWorkItems(params);
@@ -166,12 +166,12 @@ async function main() {
     );
     
     allowedTools.has("getMyWorkItems") && server.tool("getMyWorkItems", 
-      "Get work items assigned to you. By default, only recently changed items are returned.",
+      "Low-cost assigned-to-me slice. Prefer this over custom WIQL when you just need your current work with a bounded freshness window.",
       {
         state: z.string().optional().describe("Filter by work item state"),
         top: z.coerce.number().optional().describe("Maximum number of work items to return (default 50)"),
         days: z.coerce.number().optional().describe("Scope to items changed in the last N days (default 7)"),
-        fields: z.preprocess(coerceArray, z.array(z.string()).optional()).describe("Optional field list to batch-fetch for returned items. Defaults to a basic summary field set.")
+        fields: z.preprocess(coerceArray, z.array(z.string()).optional()).describe("Optional field list to batch-fetch for returned items. Request only needed fields. Defaults to a basic summary field set.")
       },
       async (params, extra) => {
         const result = await workItemTools.getMyWorkItems(params);
@@ -367,13 +367,13 @@ async function main() {
     );
     
     allowedTools.has("getWorkItemsBatch") && server.tool("getWorkItemsBatch",
-      "Get multiple work items by their IDs in a single efficient call",
+      "Efficient second step after you already know the IDs. Prefer this over broad re-queries when you only need selected fields for a known set of work items.",
       {
         ids: zIdArray().describe("Array of work item IDs to retrieve"),
         fields: z.preprocess(
           coerceArray,
           z.array(z.string()).optional()
-        ).describe("Specific fields to return (e.g., ['System.Title', 'System.State'])"),
+        ).describe("Specific fields to return (e.g., ['System.Title', 'System.State']). Keep this list explicit and minimal."),
       },
       async (params) => {
         const result = await workItemTools.getWorkItemsBatch(params);
@@ -395,10 +395,10 @@ async function main() {
     );
 
     allowedTools.has("getQueryResults") && server.tool("getQueryResults",
-      "Execute a saved WIQL query by its query ID and return the resulting work items with a batched summary field set.",
+      "Preferred for recurring team queries because the filter logic lives in Azure DevOps. Usually 1 saved-query call plus 1 batched hydrate call for up to 200 returned IDs.",
       {
         queryId: z.string().describe("The GUID of the saved query to execute"),
-        fields: z.preprocess(coerceArray, z.array(z.string()).optional()).describe("Optional field list to batch-fetch for the returned items. Defaults to a basic summary field set."),
+        fields: z.preprocess(coerceArray, z.array(z.string()).optional()).describe("Optional field list to batch-fetch for the returned items. Request only the fields you need. Defaults to a basic summary field set."),
       },
       async (params) => {
         const result = await workItemTools.getQueryResults(params);
@@ -535,11 +535,11 @@ async function main() {
     );
     
     allowedTools.has("getSprintWorkItems") && server.tool("getSprintWorkItems", 
-      "Get work items in a specific sprint with a batched summary field set.",
+      "Contextual sprint lookup. Usually 1 sprint-membership call plus 1 batched hydrate call for up to 200 returned IDs. Prefer this once you already know the sprint ID.",
       {
         teamId: z.string().optional().describe("Team ID (uses default team if not specified)"),
         sprintId: z.string().describe("ID of the sprint"),
-        fields: z.preprocess(coerceArray, z.array(z.string()).optional()).describe("Optional field list to batch-fetch for sprint items. Defaults to a basic summary field set.")
+        fields: z.preprocess(coerceArray, z.array(z.string()).optional()).describe("Optional field list to batch-fetch for sprint items. Keep this focused on planning fields you actually need. Defaults to a basic summary field set.")
       },
       async (params, extra) => {
         const result = await boardsSprintsTools.getSprintWorkItems(params);
@@ -2326,12 +2326,12 @@ async function main() {
     );
 
     allowedTools.has("getBuildWorkItems") && server.tool("getBuildWorkItems",
-      "Get work items associated with a build with a batched summary field set.",
+      "Contextual build lookup. Usually 1 build-association call plus 1 batched hydrate call for up to 200 returned IDs. Prefer this only after you already know the build ID.",
       {
         project: z.string().optional().describe("Azure DevOps project name or ID. Defaults to the configured project."),
         buildId: zId().describe("Build ID"),
         top: z.coerce.number().optional().describe("Maximum number of work items to return (default 50)"),
-        fields: z.preprocess(coerceArray, z.array(z.string()).optional()).describe("Optional field list to batch-fetch for the returned work items. Defaults to a basic summary field set."),
+        fields: z.preprocess(coerceArray, z.array(z.string()).optional()).describe("Optional field list to batch-fetch for the returned work items. Keep this small for diagnostics workflows. Defaults to a basic summary field set."),
       },
       async (params) => {
         const result = await buildTools.getBuildWorkItems(params);

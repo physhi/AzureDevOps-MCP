@@ -14,6 +14,7 @@ import {
   GetSprintCapacityParams,
   GetTeamMembersParams
 } from '../Interfaces/BoardsAndSprints';
+import { buildSprintWorkItemsUsageProfile } from '../utils/apiUsageGuidance';
 
 // Define TeamContext interface since it's not exported from WorkInterfaces
 interface TeamContext {
@@ -213,6 +214,7 @@ export class BoardsSprintsService extends AzureDevOpsService {
     try {
       const workApi = await this.getWorkApi();
       const teamContext = this.getTeamContext(params.teamId);
+      const requestedFields = this.getRequestedFields(params.fields);
 
       const throttleNotices: ThrottleNotice[] = [];
       const workItems = await this.withAuthRetry(() => workApi.getIterationWorkItems(teamContext, params.sprintId), {
@@ -237,6 +239,10 @@ export class BoardsSprintsService extends AzureDevOpsService {
         workItems: hydratedWorkItems,
         count: hydratedWorkItems.length,
         throttleInfo: AzureDevOpsService.buildThrottleInfo(throttleNotices),
+        apiUsage: buildSprintWorkItemsUsageProfile({
+          resultCount: hydratedWorkItems.length,
+          requestedFieldCount: requestedFields.length,
+        }),
       };
     } catch (error) {
       console.error(`Error getting work items for sprint ${params.sprintId}:`, error);
