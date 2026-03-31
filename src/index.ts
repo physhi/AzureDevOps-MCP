@@ -94,9 +94,18 @@ async function main() {
 
     // Register Work Item Tools
     allowedTools.has("listWorkItems") && server.tool("listWorkItems",
-      "Preferred structured work item query path. Usually 1 WIQL call plus 1 batched hydrate call for up to 200 returned IDs. Use exact filters like =, IN, UNDER, @Me, @CurrentIteration, and bounded date windows. Avoid CONTAINS, EVER, and broad unbounded scans for routine listing.",
+      "Preferred structured work item query path. Usually 1 WIQL call plus 1 batched hydrate call for up to 200 returned IDs. Use exact filters like =, IN, UNDER, @Me, @CurrentIteration, and bounded date windows. Avoid CONTAINS, EVER, and broad unbounded scans for routine listing.\n\n" +
+      "**WIQL Cost Guide (ADO internal IOps):**\n" +
+      "• CHEAP: [System.Id] = N, [System.WorkItemType] = 'Bug', [System.State] = 'Active', [System.AssignedTo] = @Me — all indexed, use freely.\n" +
+      "• CHEAP: [System.AreaPath] UNDER 'Project\\Team', [System.IterationPath] UNDER 'Project\\Sprint1' — tree-indexed.\n" +
+      "• CHEAP: [System.ChangedDate] >= @Today - 7, @CurrentIteration — bounded date scans.\n" +
+      "• MODERATE: [System.Tags] CONTAINS 'tag' — tag index, acceptable.\n" +
+      "• EXPENSIVE: [System.Title] CONTAINS 'free text', [System.Description] CONTAINS 'text' — full-text scan, no index. Use only when no structured filter works.\n" +
+      "• VERY EXPENSIVE: EVER operator on any field — scans full revision history of every work item. Avoid.\n" +
+      "• VERY EXPENSIVE: No date bound + large top — unbounded full table scan. Always add ChangedDate >= @Today - N.\n\n" +
+      "**Free-text fallback (last resort only):** When the caller only has keywords and cannot yet express structured WIQL filters, use CONTAINS on [System.Title] or [System.Description] — but keep top ≤25, keep the day window tight (≤14 days), and rewrite the generated WIQL into indexed filters after the first discovery pass.",
       {
-        query: z.string().describe("Performance-first WIQL. Keep [System.TeamProject] = @project and add narrow filters such as WorkItemType, State, AssignedTo, AreaPath UNDER, IterationPath UNDER, or ChangedDate >= @Today - N. Avoid CONTAINS for routine listing."),
+        query: z.string().describe("WIQL query. Always include [System.TeamProject] = @project. Prefer indexed filters: WorkItemType =, State =, AssignedTo = @Me, AreaPath UNDER, IterationPath UNDER, ChangedDate >= @Today - N. Use CONTAINS on Title/Description only as a last resort — it triggers a full-text scan on ADO's side."),
         top: z.coerce.number().optional().describe("Maximum number of work items to return (default 100)"),
         days: z.coerce.number().optional().describe("For flat WorkItems queries, scope to items changed in the last N days (default 7)"),
         fields: z.preprocess(coerceArray, z.array(z.string()).optional()).describe("Optional field list to batch-fetch for the returned items. Request only the fields you actually need. Defaults to a basic summary field set.")
@@ -119,25 +128,6 @@ async function main() {
       },
       async (params, extra) => {
         const result = await workItemTools.getWorkItemById(params);
-        return {
-          content: result.content,
-          rawData: result.rawData,
-          isError: result.isError,
-          structuredContent: result.structuredContent
-        };
-      }
-    );
-    
-    allowedTools.has("searchWorkItems") && server.tool("searchWorkItems",
-      "Fallback free-text discovery only. Uses CONTAINS-based WIQL, so it is usually more expensive than listWorkItems or getQueryResults. Keep top small, keep the day window tight, and rewrite the generated WIQL into structured filters after discovery.",
-      {
-        searchText: z.string().describe("Text to search for in work items"),
-        top: z.coerce.number().optional().describe("Maximum number of work items to return (default 25)"),
-        days: z.coerce.number().optional().describe("Scope search to items changed in the last N days (default 7)"),
-        fields: z.preprocess(coerceArray, z.array(z.string()).optional()).describe("Optional field list to batch-fetch for matched items. Keep this small during free-text search. Defaults to a basic summary field set.")
-      },
-      async (params, extra) => {
-        const result = await workItemTools.searchWorkItems(params);
         return {
           content: result.content,
           rawData: result.rawData,

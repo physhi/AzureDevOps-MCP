@@ -4,7 +4,6 @@ import { GitService } from '../Services/GitService';
 import { formatMcpResponse, formatErrorResponse, McpResponse } from '../Interfaces/Common';
 import {
   WorkItemByIdParams,
-  SearchWorkItemsParams,
   RecentWorkItemsParams,
   MyWorkItemsParams,
   CreateWorkItemParams,
@@ -382,141 +381,6 @@ export class WorkItemTools {
   }
 
   /**
-   * Search work items
-   */
-  public async searchWorkItems(params: SearchWorkItemsParams): Promise<McpResponse> {
-    try {
-      const results = await this.workItemService.searchWorkItems(params);
-      return this.formatSearchResultsResponse(results);
-    } catch (error) {
-      console.error('Error in searchWorkItems tool:', error);
-      return formatErrorResponse(error);
-    }
-  }
-
-  /**
-   * Format search results response with optimized tabular view
-   */
-  private formatSearchResultsResponse(results: any): McpResponse {
-    if (!results || !results.workItems || results.workItems.length === 0) {
-      const recentWindow = results?.recentDaysApplied ? ` in the last ${results.recentDaysApplied} day${results.recentDaysApplied === 1 ? '' : 's'}` : '';
-      const wiqlBlock = results?.wiql ? `\n\n**Generated WIQL**\n\n\`\`\`sql\n${results.wiql}\n\`\`\`` : '';
-      return formatMcpResponse(
-        results,
-        `## Search Results\n\nNo work items found matching "${results?.searchQuery || 'your search'}"${recentWindow}.\n\nContains-based search is expensive in Azure DevOps. Prefer focused WIQL via \`listWorkItems\` or a saved query when possible.${wiqlBlock}`,
-        false,
-        true,
-      );
-    }
-
-    // Calculate summary statistics upfront
-    const typeSummary = results.workItems.reduce((acc: any, item: any) => {
-      acc[item.workItemType] = (acc[item.workItemType] || 0) + 1;
-      return acc;
-    }, {});
-
-    const stateSummary = results.workItems.reduce((acc: any, item: any) => {
-      acc[item.state] = (acc[item.state] || 0) + 1;
-      return acc;
-    }, {});
-
-    const totalEffort = {
-      original: results.workItems.reduce((sum: number, i: any) => sum + (i.originalEstimate || 0), 0),
-      completed: results.workItems.reduce((sum: number, i: any) => sum + (i.completedWork || 0), 0)
-    };
-
-    // Compact type/status lists
-    const typeList = Object.entries(typeSummary)
-      .map(([type, count]) => `${count} ${type.toLowerCase()}${(count as number) === 1 ? '' : 's'}`)
-      .join(', ');
-    const statusList = Object.entries(stateSummary)
-      .map(([state, count]) => `${count} ${state.toLowerCase()}`)
-      .join(', ');
-
-    // START WITH SUMMARY AT TOP
-    let result = `## Search Results: "${results.searchQuery}"\n\n`;
-    result += `**${results.totalResults} items** | ${typeList} | ${statusList}`;
-    if (totalEffort.completed > 0) {
-      result += ` | **${formatEffort(totalEffort.completed)}/${formatEffort(totalEffort.original)}** completed`;
-    }
-    result += `\n\n---\n\n`;
-
-    result += `| ID | Title | Type | Status | Assigned | Author | Area | Team |\n`;
-    result += `|----|-------|------|--------|----------|--------|------|------|\n`;
-
-    results.workItems.forEach((workItem: any) => {
-      const typeEmoji = getWorkItemTypeEmoji(workItem.workItemType);
-      const stateEmoji = getStateEmoji(workItem.state);
-      const assignedTo = truncateText(workItem.assignedTo?.displayName || 'Unassigned', 18);
-      const createdBy = truncateText(workItem.createdBy?.displayName || 'Unknown', 18);
-      const areaPath = truncateText(workItem.areaPath || '-', 22);
-      const teamProject = truncateText(workItem.teamProject || '-', 16);
-
-      result += `| **#${workItem.id}** | ${truncateText(workItem.title, 36)} | ${typeEmoji} ${workItem.workItemType} | ${stateEmoji} ${workItem.state} | ${assignedTo} | ${createdBy} | ${areaPath} | ${teamProject} |\n`;
-    });
-
-    result += `\n---\n\n`;
-
-    // High priority items (one line)
-    const highPriorityItems = results.workItems.filter((item: any) => item.priority && item.priority <= 2);
-    if (highPriorityItems.length > 0) {
-      const highPriorityIds = highPriorityItems.map((i: any) => `#${i.id}`).join(', ');
-      result += `**High Priority:** ${highPriorityIds} (${highPriorityItems.length} items)\n`;
-    }
-
-    // Recently updated (one line, top 3)
-    const recentItems = results.workItems
-      .sort((a: any, b: any) => new Date(b.changedDate).getTime() - new Date(a.changedDate).getTime())
-      .slice(0, 3);
-    const recentList = recentItems.map((i: any) => `#${i.id} (${formatRelativeDate(i.changedDate)})`).join(', ');
-    result += `**Recently Updated:** ${recentList}\n\n`;
-
-    result += `---\n`;
-    result += `Contains-based search is expensive in Azure DevOps and should be treated as a fallback, not the default discovery path.\n`;
-    if (results.wiql) {
-      result += `\n**Generated WIQL**\n\n\`\`\`sql\n${results.wiql}\n\`\`\`\n`;
-    }
-    result += `\nUse \`listWorkItems\` with focused WIQL for repeatable queries, and use \`getWorkItemsBatch\` when you want to fetch a controlled field set for specific IDs.\n`;
-
-    // Prepare structured content
-    const structuredData = {
-      searchQuery: results.searchQuery,
-      totalResults: results.totalResults,
-      returnedResults: results.returnedResults,
-      recentDaysApplied: results.recentDaysApplied,
-      advisory: results.advisory,
-      wiql: results.wiql,
-      throttleInfo: results.throttleInfo,
-      apiUsage: results.apiUsage,
-      workItems: results.workItems.map((item: any) => ({
-        id: item.id,
-        teamProject: item.teamProject,
-        type: item.workItemType,
-        title: item.title,
-        state: item.state,
-        priority: item.priority,
-        assignedTo: item.assignedTo?.displayName,
-        createdBy: item.createdBy?.displayName,
-        areaPath: item.areaPath,
-        iterationPath: item.iterationPath,
-        effort: {
-          original: item.originalEstimate,
-          completed: item.completedWork,
-          remaining: item.remainingWork
-        },
-        changedDate: item.changedDate
-      })),
-      summary: {
-        byType: typeSummary,
-        byStatus: stateSummary,
-        effort: totalEffort
-      }
-    };
-
-    return formatMcpResponse(structuredData, result, false, true);
-  }
-
-  /**
    * Get recently updated work items
    */
   public async getRecentlyUpdatedWorkItems(params: RecentWorkItemsParams): Promise<McpResponse> {
@@ -551,7 +415,7 @@ export class WorkItemTools {
       const items = results.workItems || [];
 
       if (items.length === 0) {
-        return formatMcpResponse(results, `## My Work Items\n\nNo work items assigned to you.\n\nUse \`searchWorkItems\` or \`listWorkItems\` to find items across the project.`);
+        return formatMcpResponse(results, `## My Work Items\n\nNo work items assigned to you.\n\nUse \`listWorkItems\` with a WIQL query to find items across the project.`);
       }
 
       let md = `## My Work Items\n\n**${items.length} item${items.length !== 1 ? 's' : ''}** assigned to you\n\n`;

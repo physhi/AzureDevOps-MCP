@@ -7,16 +7,6 @@ export interface WorkItemByIdParams {
 }
 
 /**
- * Interface for searching work items
- */
-export interface SearchWorkItemsParams {
-  searchText: string;
-  top?: number;
-  days?: number;
-  fields?: string[];
-}
-
-/**
  * Interface for recently updated work items
  */
 export interface RecentWorkItemsParams {

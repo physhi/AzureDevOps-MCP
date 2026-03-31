@@ -821,11 +821,13 @@ export class GitTools {
         threads: threads.map((thread: any) => ({
           id: thread.id,
           status: this.getThreadStatusLabel(thread.status),
+          classification: this.classifyThread(thread),
           type: thread.properties?.CodeReviewThreadType?.$value,
           filePath: thread.threadContext?.filePath,
           lineStart: thread.threadContext?.rightFileStart?.line,
           lineEnd: thread.threadContext?.rightFileEnd?.line,
           comments: (thread.comments || []).map((comment: any) => ({
+            id: comment.id,
             author: comment.author?.displayName || comment.author?.uniqueName,
             content: comment.content,
             publishedDate: comment.publishedDate,
@@ -835,6 +837,9 @@ export class GitTools {
         })),
         summary: {
           totalThreads: threads.length,
+          reviewThreads: threads.filter((t: any) => this.classifyThread(t) === 'review').length,
+          generalThreads: threads.filter((t: any) => this.classifyThread(t) === 'general').length,
+          systemThreads: threads.filter((t: any) => this.classifyThread(t) === 'system').length,
           totalComments: threads.reduce((sum: number, t: any) => sum + (t.comments?.length || 0), 0),
           active: threads.filter((t: any) => this.getThreadStatusLabel(t.status) === 'active').length,
           fixed: threads.filter((t: any) => this.getThreadStatusLabel(t.status) === 'fixed').length,
@@ -853,110 +858,216 @@ export class GitTools {
   }
 
   /**
+   * Classifies a thread as 'review', 'general', or 'system' based on its properties and content.
+   */
+  private classifyThread(thread: any): 'review' | 'general' | 'system' {
+    const codeReviewType = thread.properties?.CodeReviewThreadType?.$value;
+    if (codeReviewType === 'CodeReview') return 'review';
+    if (codeReviewType === 'General') return 'general';
+
+    // System thread types identified by their CodeReviewThreadType or by having no human-authored content
+    const systemTypes = [
+      'RefUpdate', 'ReviewersUpdate', 'VoteUpdate', 'ResetMultipleVotes',
+      'ResetAllVotes', 'StatusUpdate', 'IsDraftUpdate', 'PolicyStatusUpdate',
+      'RetargetUpdate', 'AutoComplete', 'MergeAttempt'
+    ];
+    if (codeReviewType && systemTypes.includes(codeReviewType)) return 'system';
+
+    // Threads with file context are code review comments even without explicit type
+    if (thread.threadContext?.filePath) return 'review';
+
+    // Threads where all comments are from system accounts (TFS) are system threads
+    const comments = thread.comments || [];
+    const hasHumanComment = comments.some((c: any) => {
+      const authorName = c.author?.displayName || '';
+      const uniqueName = c.author?.uniqueName || '';
+      return !authorName.includes('VisualStudio.Services.TFS') &&
+             !uniqueName.includes('VisualStudio.Services.TFS') &&
+             (c.commentType !== 'system');
+    });
+    if (!hasHumanComment && comments.length > 0) return 'system';
+
+    // Threads with human comments but no file context are general discussion
+    if (hasHumanComment) return 'general';
+
+    return 'system';
+  }
+
+  /**
+   * Maps thread status to a human-readable display label.
+   */
+  private getThreadStatusDisplayLabel(status: number | undefined): string {
+    switch (status) {
+      case 1: return 'Active';
+      case 2: return 'Resolved';
+      case 3: return "Won't Fix";
+      case 4: return 'Closed';
+      case 5: return 'By Design';
+      case 6: return 'Pending';
+      default: return 'Unknown';
+    }
+  }
+
+  /**
+   * Formats a datetime string for display: "Mar 30, 2026 10:45 AM (3h ago)"
+   */
+  private formatCommentDateTime(dateString: string | undefined): string {
+    if (!dateString) return 'Unknown';
+    try {
+      const date = new Date(dateString);
+      const formatted = date.toLocaleDateString('en-US', {
+        month: 'short', day: 'numeric', year: 'numeric',
+        hour: 'numeric', minute: '2-digit', hour12: true
+      });
+      return `${formatted} (${formatRelativeDate(dateString)})`;
+    } catch {
+      return dateString;
+    }
+  }
+
+  /**
    * Formats pull request comments data into a concise document format
    */
   private formatPullRequestCommentsDocument(data: any, pullRequestId: number): string {
     if (!data || (!Array.isArray(data) && !data.length && !data.value)) {
-      return `## PR Comments\n\n**No comments found** in PR #${pullRequestId}`;
+      return `## PR #${pullRequestId} Comments\n\n**No comments found.**`;
     }
 
-    // Handle both array and object with value property
     const threads = Array.isArray(data) ? data : (data.value || []);
-
     if (threads.length === 0) {
-      return `## PR Comments\n\n**No comments found** in PR #${pullRequestId}`;
+      return `## PR #${pullRequestId} Comments\n\n**No comments found.**`;
     }
 
-    // Calculate summary statistics upfront
-    const commentCount = threads.reduce((sum: number, thread: any) => sum + (thread.comments?.length || 0), 0);
-    const codeReviewCount = threads.filter((t: any) => t.properties?.CodeReviewThreadType?.$value === 'CodeReview').length;
-    const generalCount = threads.filter((t: any) => t.properties?.CodeReviewThreadType?.$value === 'General').length;
-    const systemCount = threads.length - codeReviewCount - generalCount;
+    // Classify threads
+    const reviewThreads = threads.filter((t: any) => this.classifyThread(t) === 'review');
+    const generalThreads = threads.filter((t: any) => this.classifyThread(t) === 'general');
+    const systemThreads = threads.filter((t: any) => this.classifyThread(t) === 'system');
+    const allDiscussionThreads = [...reviewThreads, ...generalThreads];
 
-    // Calculate status counts
-    const activeCount = threads.filter((t: any) => this.getThreadStatusLabel(t.status) === 'active').length;
-    const fixedCount = threads.filter((t: any) => this.getThreadStatusLabel(t.status) === 'fixed').length;
-    const closedCount = threads.filter((t: any) => this.getThreadStatusLabel(t.status) === 'closed').length;
-    const resolvedCount = fixedCount + closedCount;
+    // Collect IDs by status for the summary
+    const activeIds = allDiscussionThreads.filter((t: any) => t.status === 1).map((t: any) => t.id);
+    const pendingIds = allDiscussionThreads.filter((t: any) => t.status === 6).map((t: any) => t.id);
+    const resolvedIds = allDiscussionThreads.filter((t: any) => [2, 4, 5].includes(t.status)).map((t: any) => t.id);
+    const wontFixIds = allDiscussionThreads.filter((t: any) => t.status === 3).map((t: any) => t.id);
 
-    // START WITH SUMMARY AT TOP
-    let document = `## PR #${pullRequestId} Comments\n\n`;
-    document += `**${threads.length} threads** | **${commentCount} comments**`;
-    if (codeReviewCount > 0 || generalCount > 0 || systemCount > 0) {
-      document += ` | ${codeReviewCount} code review, ${generalCount} general, ${systemCount} system`;
+    // === SUMMARY SECTION ===
+    let document = `# PR #${pullRequestId} — Comment Threads\n\n`;
+    document += `**Total:** ${allDiscussionThreads.length} discussions (${reviewThreads.length} code review, ${generalThreads.length} general), ${systemThreads.length} system events\n\n`;
+
+    if (activeIds.length > 0) {
+      document += `**ACTIVE Threads**: ${activeIds.join(', ')} _(need action)_\n`;
     }
-    document += `\n`;
-    // Status breakdown
-    const statusParts: string[] = [];
-    if (activeCount > 0) statusParts.push(`${activeCount} active`);
-    if (resolvedCount > 0) statusParts.push(`${resolvedCount} resolved`);
-    const pendingCount = threads.filter((t: any) => this.getThreadStatusLabel(t.status) === 'pending').length;
-    if (pendingCount > 0) statusParts.push(`${pendingCount} pending`);
-    if (statusParts.length > 0) {
-      document += `**Status:** ${statusParts.join(', ')}\n`;
+    if (pendingIds.length > 0) {
+      document += `**PENDING Threads**: ${pendingIds.join(', ')}\n`;
     }
+    if (wontFixIds.length > 0) {
+      document += `**Won't Fix Threads**: ${wontFixIds.join(', ')}\n`;
+    }
+    if (resolvedIds.length > 0) {
+      document += `**Resolved Threads**: ${resolvedIds.join(', ')}\n`;
+    }
+    if (activeIds.length === 0 && pendingIds.length === 0) {
+      document += `**All threads resolved** ✅\n`;
+    }
+
     document += `\n---\n\n`;
 
-    threads.forEach((thread: any, index: number) => {
-      document += this.formatCommentThread(thread, index + 1);
-      document += `\n---\n\n`;
+    // === DISCUSSION THREADS ===
+    // Code review threads first, then general
+    const orderedThreads = [...reviewThreads, ...generalThreads];
+
+    orderedThreads.forEach((thread: any) => {
+      document += this.formatCommentThread(thread);
+      document += `---\n\n`;
     });
+
+    // === SYSTEM ACTIVITY (collapsed one-liners) ===
+    if (systemThreads.length > 0) {
+      document += `### System Activity (${systemThreads.length} events)\n\n`;
+      systemThreads.forEach((thread: any) => {
+        const typeLabel = this.getThreadTypeDescription(
+          thread.properties?.CodeReviewThreadType?.$value || ''
+        );
+        const comment = thread.comments?.[0];
+        const summary = comment?.content?.trim() || '';
+        if (summary && summary !== 'No content') {
+          document += `- ${typeLabel}: ${truncateText(summary, 120)}\n`;
+        } else {
+          document += `- ${typeLabel}\n`;
+        }
+      });
+      document += `\n`;
+    }
 
     return document;
   }
 
   /**
-   * Formats a single comment thread
+   * Formats a single comment thread in the structured discussion format
    */
-  private formatCommentThread(thread: any, threadNumber: number): string {
-    const threadType = thread.properties?.CodeReviewThreadType?.$value || 'Unknown';
-    const typeLabel = this.getThreadTypeDescription(threadType);
-    const statusLabel = this.getThreadStatusLabel(thread.status);
+  private formatCommentThread(thread: any): string {
+    const discussionId = thread.id;
+    const statusDisplay = this.getThreadStatusDisplayLabel(thread.status);
 
-    let threadDoc = `### ${threadNumber}. [${typeLabel}] (Thread #${thread.id} — ${statusLabel})`;
+    // Find the earliest comment date as the thread start time
+    const firstComment = thread.comments?.[0];
+    const threadStartTime = this.formatCommentDateTime(firstComment?.publishedDate);
 
-    // Add file context if available (inline)
+    let doc = `## Discussion: ${discussionId}\n`;
+    doc += `**Started:** ${threadStartTime}\n`;
+    doc += `**Status:** ${statusDisplay}\n`;
+
+    // Add file context if available
     if (thread.threadContext?.filePath) {
       const filePath = thread.threadContext.filePath;
       const lineStart = thread.threadContext.rightFileStart?.line;
       const lineEnd = thread.threadContext.rightFileEnd?.line;
-
-      threadDoc += ` | \`${filePath}\``;
-      if (lineStart && lineEnd) {
-        threadDoc += `:${lineStart}-${lineEnd}`;
+      let location = `\`${filePath}\``;
+      if (lineStart && lineEnd && lineStart !== lineEnd) {
+        location += `:${lineStart}-${lineEnd}`;
+      } else if (lineStart) {
+        location += `:${lineStart}`;
       }
+      doc += `**File:** ${location}\n`;
     }
 
-    threadDoc += `\n\n`;
+    doc += `\n`;
 
-    // Format comments in the thread
+    // Format each comment/message in the thread
     if (thread.comments && thread.comments.length > 0) {
-      thread.comments.forEach((comment: any) => {
-        threadDoc += this.formatSingleComment(comment);
+      const visibleComments = thread.comments.filter((c: any) => {
+        const content = c.content?.trim();
+        if (!content) return thread.comments.length === 1;
+        return !c.isDeleted;
+      });
+
+      visibleComments.forEach((comment: any) => {
+        doc += this.formatSingleComment(comment);
       });
     }
 
-    return threadDoc;
+    return doc;
   }
 
   /**
-   * Formats a single comment
+   * Formats a single comment/message within a thread
    */
   private formatSingleComment(comment: any): string {
     const author = comment.author?.displayName || 'Unknown';
-    const content = comment.content || 'No content';
-    const isReply = comment.parentCommentId > 0;
+    const adoCommentId = comment.id ?? '';
+    const time = this.formatCommentDateTime(comment.publishedDate);
+    const content = comment.content?.trim() || '_No content_';
 
-    let commentDoc = `${isReply ? '  ' : ''}**${isReply ? '↳ ' : ''}${author}:**`;
-
-    // Add likes if any
+    let doc = `### Comment: ${adoCommentId}\n`;
+    doc += `**Author:** ${author}`;
     if (comment.usersLiked && comment.usersLiked.length > 0) {
-      commentDoc += ` 👍${comment.usersLiked.length}`;
+      doc += ` | 👍 ${comment.usersLiked.length}`;
     }
+    doc += `\n`;
+    doc += `**Time:** ${time}\n\n`;
+    doc += `<message>\n${content}\n</message>\n\n`;
 
-    commentDoc += `\n${isReply ? '  ' : ''}> ${content}\n\n`;
-
-    return commentDoc;
+    return doc;
   }
 
   /**
@@ -966,10 +1077,18 @@ export class GitTools {
     switch (threadType) {
       case 'CodeReview': return '💬 Code Review';
       case 'General': return '💭 General';
-      case 'RefUpdate': return '🔄 Branch Update';
-      case 'ReviewersUpdate': return '👥 Reviewers Change';
-      case 'IsDraftUpdate': return '📝 Draft Change';
-      default: return threadType || 'Unknown';
+      case 'RefUpdate': return '🔄 Branch updated';
+      case 'ReviewersUpdate': return '👥 Reviewer added/removed';
+      case 'VoteUpdate': return '🗳️ Vote changed';
+      case 'ResetMultipleVotes': return '🔄 Votes reset (push to source)';
+      case 'ResetAllVotes': return '🔄 All votes reset';
+      case 'IsDraftUpdate': return '📝 Draft status changed';
+      case 'StatusUpdate': return '📋 PR status changed';
+      case 'PolicyStatusUpdate': return '🔒 Policy status updated';
+      case 'RetargetUpdate': return '🎯 Target branch changed';
+      case 'AutoComplete': return '⚡ Auto-complete toggled';
+      case 'MergeAttempt': return '🔀 Merge attempted';
+      default: return threadType ? `📌 ${threadType}` : '📌 Comment';
     }
   }
 

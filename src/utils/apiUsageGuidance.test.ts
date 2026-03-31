@@ -3,7 +3,6 @@ import { describe, expect, it } from 'vitest';
 import {
   analyzeWiql,
   buildListWorkItemsUsageProfile,
-  buildSearchWorkItemsUsageProfile,
 } from './apiUsageGuidance';
 
 describe('apiUsageGuidance', () => {
@@ -71,20 +70,25 @@ describe('apiUsageGuidance', () => {
     expect(profile.relativeCost).toBe('low');
   });
 
-  it('marks searchWorkItems as high relative cost', () => {
-    const profile = buildSearchWorkItemsUsageProfile({
-      resultCount: 25,
-      top: 25,
-      requestedFieldCount: 8,
-      query: `SELECT [System.Id]
+  it('marks a CONTAINS-based listWorkItems query as high relative cost', () => {
+    const queryAnalysis = analyzeWiql(
+      `SELECT [System.Id]
               FROM WorkItems
               WHERE
                 [System.TeamProject] = @project
                 AND [System.Title] CONTAINS 'auth'`,
+      25,
+      8,
+    );
+
+    const profile = buildListWorkItemsUsageProfile({
+      resultCount: 25,
+      top: 25,
+      requestedFieldCount: 8,
+      queryAnalysis,
     });
 
-    expect(profile.relativeCost).toBe('high');
+    expect(profile.relativeCost).toBe('very-high');
     expect(profile.estimatedAdoCalls).toBe(2);
-    expect(profile.bestFor[0]).toContain('free text');
   });
 });

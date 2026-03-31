@@ -243,46 +243,6 @@ export function buildListWorkItemsUsageProfile(options: {
   };
 }
 
-export function buildSearchWorkItemsUsageProfile(options: {
-  resultCount: number;
-  top: number;
-  requestedFieldCount: number;
-  query: string;
-}): ApiUsageProfile {
-  const queryAnalysis = analyzeWiql(options.query, options.top, options.requestedFieldCount);
-  const estimatedAdoCalls = 1 + estimateHydrationCalls(options.resultCount);
-  const score = options.top > 50 || options.requestedFieldCount > 12 || estimatedAdoCalls > 2 ? 4 : 3;
-
-  return {
-    toolName: 'searchWorkItems',
-    relativeCost: chooseRelativeCost(score),
-    estimatedAdoCalls,
-    callBreakdown: buildCallBreakdown('queryByWiql with CONTAINS filters', options.resultCount),
-    tstuGuidance: TSTU_GUIDANCE,
-    costDrivers: [
-      'Substring matching on title and description',
-      'Returned ID count that must be hydrated',
-      buildFieldPayloadNote(options.requestedFieldCount),
-    ],
-    bestFor: [
-      'Last-resort discovery when the caller only has free text and cannot yet express a structured WIQL filter.',
-    ],
-    bestPractices: [
-      'Use tight date windows and small top values.',
-      'Rewrite the generated WIQL into exact listWorkItems filters after the first discovery pass.',
-      'Move repeatable searches into saved queries if teams run them often.',
-    ],
-    avoid: [
-      'Avoid using searchWorkItems as the default list or polling primitive.',
-      'Avoid large date windows and large top values with free-text search.',
-      'Avoid hydrating many fields during exploratory text search.',
-    ],
-    rateLimitHeadersToWatch: RATE_LIMIT_HEADERS,
-    recommendedAlternativeTools: ['listWorkItems', 'getQueryResults', 'getRecentlyUpdatedWorkItems', 'getMyWorkItems'],
-    queryAuthoring: queryAnalysis,
-  };
-}
-
 export function buildRecentWorkItemsUsageProfile(options: {
   resultCount: number;
   top: number;

@@ -9,7 +9,6 @@ import { AzureDevOpsConfig } from '../Interfaces/AzureDevOps';
 import { AzureDevOpsService } from './AzureDevOpsService';
 import {
   WorkItemByIdParams,
-  SearchWorkItemsParams,
   RecentWorkItemsParams,
   MyWorkItemsParams,
   CreateWorkItemParams,
@@ -35,7 +34,6 @@ import {
   buildMyWorkItemsUsageProfile,
   buildRecentWorkItemsUsageProfile,
   buildSavedQueryUsageProfile,
-  buildSearchWorkItemsUsageProfile,
 } from '../utils/apiUsageGuidance';
 
 /** Rich-text fields that expect HTML — markdown is auto-converted for these */
@@ -401,88 +399,6 @@ export class WorkItemService extends AzureDevOpsService {
   /**
    * Search work items using text
    */
-  public async searchWorkItems(params: SearchWorkItemsParams): Promise<any> {
-    try {
-      const serverTop = params.top || 25;
-      const recentDays = this.normalizeRecentDays(params.days);
-      const requestedFields = this.getRequestedFields(params.fields, this.DEFAULT_FIELDS);
-      const searchText = this.escapeWiqlLiteral(params.searchText);
-      const query = `SELECT [System.Id], [System.Title], [System.State], [System.ChangedDate]
-                    FROM WorkItems
-                    WHERE [System.TeamProject] = @project
-                    AND [System.ChangedDate] >= @today - ${recentDays}
-                    AND (
-                      [System.Title] CONTAINS '${searchText}'
-                      OR [System.Description] CONTAINS '${searchText}'
-                    )
-                    ORDER BY [System.ChangedDate] DESC`;
-
-      const cacheKey = this.buildWiqlCacheKey(query, serverTop);
-      const cached = this.getCachedWiql(cacheKey);
-      if (cached) return cached;
-
-      const throttleNotices: ThrottleNotice[] = [];
-      const witApi = await this.getWorkItemTrackingApi();
-      const queryResult = await this.withAuthRetry(() => witApi.queryByWiql({
-        query
-      }, {
-        project: this.config.project
-      }, undefined, serverTop), {
-        operationName: 'workItems.search.queryByWiql',
-        details: { project: this.config.project, top: serverTop, recentDays },
-      }, throttleNotices);
-
-      const advisory = 'Search uses CONTAINS clauses, which are expensive in Azure DevOps. Prefer listWorkItems with focused WIQL or saved queries when possible.';
-
-      if (queryResult.workItems && queryResult.workItems.length > 0) {
-        const transformedWorkItems = await this.hydrateWorkItemRefs(queryResult.workItems, {
-          fields: params.fields, defaults: this.DEFAULT_FIELDS, operationName: 'workItems.search.batchHydrate',
-          throttleAccumulator: throttleNotices,
-        });
-
-        const response = {
-          searchQuery: params.searchText,
-          totalResults: queryResult.workItems.length,
-          returnedResults: transformedWorkItems.length,
-          workItems: transformedWorkItems,
-          wiql: query,
-          recentDaysApplied: recentDays,
-          throttleInfo: AzureDevOpsService.buildThrottleInfo(throttleNotices),
-          advisory,
-          apiUsage: buildSearchWorkItemsUsageProfile({
-            resultCount: transformedWorkItems.length,
-            top: serverTop,
-            requestedFieldCount: requestedFields.length,
-            query,
-          }),
-        };
-        this.setCachedWiql(cacheKey, response);
-        return response;
-      }
-
-      const emptyResponse = {
-        searchQuery: params.searchText,
-        totalResults: 0,
-        returnedResults: 0,
-        workItems: [],
-        wiql: query,
-        recentDaysApplied: recentDays,
-        throttleInfo: AzureDevOpsService.buildThrottleInfo(throttleNotices),
-        advisory,
-        apiUsage: buildSearchWorkItemsUsageProfile({
-          resultCount: 0,
-          top: serverTop,
-          requestedFieldCount: requestedFields.length,
-          query,
-        }),
-      };
-      this.setCachedWiql(cacheKey, emptyResponse);
-      return emptyResponse;
-    } catch (error) {
-      console.error('Error searching work items:', error);
-      throw error;
-    }
-  }
 
   /**
    * Get recently updated work items
