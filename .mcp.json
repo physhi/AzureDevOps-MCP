@@ -1,44 +1,12 @@
 {
     "mcpServers": {
-        "sequential-thinking-tools": {
-            "command": "cmd",
-            "args": [
-                "/c",
-                "npx",
-                "-y",
-                "@modelcontextprotocol/server-sequential-thinking"
-            ],
-            "env": {}
-        },
-        "clarify-doubt": {
-            "command": "cmd",
-            "args": [
-                "/C npx -y @achieveai/hitl-mcp-server@latest"
-            ]
-        },
-        "ado": {
+        "playwright": {
             "command": "npx",
             "args": [
                 "-y",
-                "@azure-devops/mcp",
-                "mcqdbdev",
-                "MCQdb_Development",
-                "MCQdbDev"
+                "@playwright/mcp",
+                "--no-sandbox"
             ]
-        },
-        "azure-devops": {
-            "command": "cmd",
-            "args": [
-                "/c",
-                "node",
-                "b:\\sources\\AzureDevOps-MCP\\dist\\index.js"
-            ],
-            "env": {
-                "AZURE_DEVOPS_ORG_URL": "https://mcqdbdev.visualstudio.com/",
-                "AZURE_DEVOPS_PROJECT": "MCQdb_Development",
-                "AZURE_DEVOPS_IS_ON_PREMISES": "false"
-
-            }
         }
     }
 }

@@ -40,7 +40,8 @@ import {
 const RICH_TEXT_FIELDS = new Set([
   'System.Description',
   'System.History',
-  'System.ReproSteps',
+  'Microsoft.VSTS.TCM.ReproSteps',
+  'Microsoft.VSTS.TCM.SystemInfo',
   'Microsoft.VSTS.TCM.Steps',
   'Microsoft.VSTS.Common.AcceptanceCriteria',
 ]);
@@ -215,7 +216,12 @@ export class WorkItemService extends AzureDevOpsService {
           } : null,
           createdDate: workItem.fields['System.CreatedDate'],
           changedDate: workItem.fields['System.ChangedDate'],
-          description: workItem.fields['System.Description'],
+          // Bug work items store their primary description in Microsoft.VSTS.TCM.ReproSteps
+          // ("Repro Steps" on the Bug form), not System.Description.
+          // Fall back to System.Description for non-Bug types or legacy data.
+          description: (workItem.fields['System.WorkItemType'] === 'Bug'
+            ? (workItem.fields['Microsoft.VSTS.TCM.ReproSteps'] || workItem.fields['System.Description'])
+            : workItem.fields['System.Description']),
           priority: workItem.fields['Microsoft.VSTS.Common.Priority'],
           originalEstimate: workItem.fields['Microsoft.VSTS.Scheduling.OriginalEstimate'],
           completedWork: workItem.fields['Microsoft.VSTS.Scheduling.CompletedWork'],
@@ -538,10 +544,16 @@ export class WorkItemService extends AzureDevOpsService {
       });
       
       // Add description if provided (convert markdown to HTML for Azure DevOps rich-text field)
+      // Bug work items use Microsoft.VSTS.TCM.ReproSteps as their primary description field
+      // (the "Repro Steps" section shown on the Bug form), not System.Description.
       if (params.description) {
+        const isBug = params.workItemType.toLowerCase() === 'bug';
+        const descriptionField = isBug
+          ? "/fields/Microsoft.VSTS.TCM.ReproSteps"
+          : "/fields/System.Description";
         patchDocument.push({
           op: Operation.Add,
-          path: "/fields/System.Description",
+          path: descriptionField,
           value: markdownToHtml(params.description)
         });
       }
